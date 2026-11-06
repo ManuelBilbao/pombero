@@ -49,7 +49,7 @@ pub fn init(
     };
 
     const env = b.graph.environ_map;
-    const app_path = b.fmt("macos/build/{s}/Ghostty.app", .{xc_config});
+    const app_path = b.fmt("macos/build/{s}/Pombero.app", .{xc_config});
 
     // Our step to build the Ghostty macOS app.
     const build = build: {
@@ -59,10 +59,23 @@ pub fn init(
         env_map.* = .init(b.allocator);
         if (env.get("PATH")) |v| try env_map.put("PATH", v);
 
+        // Running the app sets a custom Finder icon on the bundle (Finder
+        // info and an "Icon\r" file), which codesign refuses as detritus on
+        // the next build. Strip it from the previous build first.
+        const clean_icon = RunStep.create(b, "strip Finder icon metadata");
+        clean_icon.has_side_effects = true;
+        clean_icon.addArgs(&.{
+            "/bin/sh",
+            "-c",
+            "if [ -d \"$0\" ]; then /usr/bin/xattr -cr \"$0\"; rm -f \"$0/Icon\"$'\\r'; fi",
+        });
+        clean_icon.addFileArg(b.path(app_path));
+
         const step = RunStep.create(b, "xcodebuild");
         step.has_side_effects = true;
         step.cwd = b.path("macos");
         step.environ_map = env_map;
+        step.step.dependOn(&clean_icon.step);
         step.addArgs(&.{
             "xcodebuild",
             "-target",

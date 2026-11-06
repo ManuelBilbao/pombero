@@ -10,6 +10,24 @@ struct ColorizedGhosttyIcon {
     /// The frame type to use
     let frame: Ghostty.MacOSIconFrame
 
+    /// How the screen gradient is applied to the screen layer. `color`
+    /// (upstream behavior) keeps the layer's brightness and only recolors
+    /// it, which turns a gray gradient nearly black; `screen` lightens
+    /// with the gradient instead, so grays read as gray.
+    var screenBlend: ScreenBlend = .color
+
+    enum ScreenBlend: String, Codable {
+        case color
+        case screen
+
+        var cgBlendMode: CGBlendMode {
+            switch self {
+            case .color: .color
+            case .screen: .screen
+            }
+        }
+    }
+
     /// Make a custom colorized ghostty icon.
     func makeImage(in bundle: Bundle) -> NSImage? {
         // All of our layers (not in order)
@@ -45,7 +63,7 @@ struct ColorizedGhosttyIcon {
         ], blendingModes: [
             .normal,
             .normal,
-            .color,
+            screenBlend.cgBlendMode,
             .normal,
             .color,
             .overlay,
@@ -62,6 +80,7 @@ extension ColorizedGhosttyIcon: Codable {
         case screenColors
         case ghostColor
         case frame
+        case screenBlend
 
         static let currentVersion: Int = 1
     }
@@ -91,7 +110,8 @@ extension ColorizedGhosttyIcon: Codable {
             )
         }
         let frame = try container.decode(Ghostty.MacOSIconFrame.self, forKey: .frame)
-        self.init(screenColors: screenColors, ghostColor: ghostColor, frame: frame)
+        let screenBlend = try container.decodeIfPresent(ScreenBlend.self, forKey: .screenBlend) ?? .color
+        self.init(screenColors: screenColors, ghostColor: ghostColor, frame: frame, screenBlend: screenBlend)
     }
 
     func encode(to encoder: any Encoder) throws {
@@ -100,6 +120,7 @@ extension ColorizedGhosttyIcon: Codable {
         try container.encode(screenColors.compactMap(\.hexString), forKey: .screenColors)
         try container.encode(ghostColor.hexString, forKey: .ghostColor)
         try container.encode(frame, forKey: .frame)
+        try container.encode(screenBlend, forKey: .screenBlend)
     }
 
 }
@@ -109,6 +130,7 @@ extension ColorizedGhosttyIcon: Codable {
 extension ColorizedGhosttyIcon: Equatable {
     static func == (lhs: Self, rhs: Self) -> Bool {
         lhs.frame == rhs.frame &&
+            lhs.screenBlend == rhs.screenBlend &&
             lhs.screenColors.compactMap(\.hexString) == rhs.screenColors.compactMap(\.hexString) &&
             lhs.ghostColor.hexString == rhs.ghostColor.hexString
     }

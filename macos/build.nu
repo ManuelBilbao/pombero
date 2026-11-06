@@ -19,6 +19,15 @@ def main [
         []
     }
 
+    # Running the app sets a custom Finder icon on the bundle (Finder info
+    # and an "Icon\r" file), which codesign refuses as detritus on the next
+    # build. Strip it before building.
+    let app = ($build_dir | path join $configuration "Pombero.app")
+    if ($app | path exists) {
+        ^xattr -cr $app
+        ^rm -f ($app | path join "Icon\r")
+    }
+
     (^env -i
         $"HOME=($env.HOME)"
         "PATH=/usr/bin:/bin:/usr/sbin:/sbin"
