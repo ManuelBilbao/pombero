@@ -36,6 +36,10 @@ struct WorkspaceSidebarView: View {
                     Color.primary.opacity(0.04)
                 }
             )
+            // Appearing or disappearing reshuffles focus in the window;
+            // the terminal keeps it.
+            .onAppear { TerminalWorkspaceGroup.refocusTerminal() }
+            .onDisappear { TerminalWorkspaceGroup.refocusTerminal() }
             .accessibilityElement(children: .contain)
             .accessibilityLabel("Workspaces")
         }
@@ -294,10 +298,6 @@ private struct WorkspaceRow: View {
         // Hand keyboard focus back to the terminal that had it. The text
         // field was first responder, and nothing else claims focus when it
         // goes away.
-        if let window = NSApp.keyWindow,
-           let controller = window.windowController as? BaseTerminalController,
-           let surface = controller.focusedSurface {
-            DispatchQueue.main.async { Ghostty.moveFocus(to: surface) }
-        }
+        TerminalWorkspaceGroup.refocusTerminal()
     }
 }

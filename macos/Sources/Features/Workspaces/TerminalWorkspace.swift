@@ -228,6 +228,7 @@ final class TerminalWorkspaceGroup: ObservableObject {
             // A closing window is still in its tab group at this point;
             // sync again once AppKit has taken it out.
             DispatchQueue.main.async { [weak self] in self?.syncVisibleTabs() }
+            Self.refocusTerminal()
         }
     }
 
@@ -407,6 +408,19 @@ final class TerminalWorkspaceGroup: ObservableObject {
 
         let target = workspace.selectedTab.flatMap { workspace.contains($0) ? $0 : nil } ?? first
         target.window?.makeKeyAndOrderFront(nil)
+        Self.refocusTerminal(of: target)
+    }
+
+    /// Move keyboard focus to a controller's focused terminal. A window
+    /// that is shown or whose sidebar just appeared can end up with a
+    /// sidebar button as first responder; the terminal must win.
+    static func refocusTerminal(of controller: BaseTerminalController? = nil) {
+        let controller = controller ?? (NSApp.keyWindow?.windowController as? BaseTerminalController)
+        guard let controller else { return }
+        guard let surface = controller.focusedSurface ?? controller.surfaceTree.first else { return }
+        DispatchQueue.main.async {
+            Ghostty.moveFocus(to: surface)
+        }
     }
 
     /// Take a workspace's windows off screen without closing them.
