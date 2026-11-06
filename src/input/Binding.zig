@@ -597,6 +597,36 @@ pub const Action = union(enum) {
     /// found by running `ghostty +version`.
     toggle_tab_overview,
 
+    /// Create a new workspace in the current window and switch to it.
+    ///
+    /// Workspaces group tabs within a window. Only the selected
+    /// workspace's tabs are shown; the other workspaces keep their
+    /// terminals running in the background. A sidebar listing the
+    /// workspaces is shown whenever a window has more than one.
+    ///
+    /// This is currently only supported on macOS.
+    new_workspace,
+
+    /// Go to the previous workspace in the current window.
+    previous_workspace,
+
+    /// Go to the next workspace in the current window.
+    next_workspace,
+
+    /// Go to the last workspace in the current window.
+    last_workspace,
+
+    /// Go to the workspace with the specific index, starting from 1.
+    ///
+    /// If the workspace number is higher than the number of workspaces,
+    /// this will go to the last workspace.
+    goto_workspace: usize,
+
+    /// Toggle the workspace sidebar between its expanded and collapsed
+    /// state. The sidebar is only shown when the window has more than
+    /// one workspace.
+    toggle_workspace_sidebar,
+
     /// Change the title of the current focused surface via a pop-up prompt.
     prompt_surface_title,
 
@@ -1476,6 +1506,12 @@ pub const Action = union(enum) {
             .move_tab,
             .move_tab_to_new_window,
             .toggle_tab_overview,
+            .new_workspace,
+            .previous_workspace,
+            .next_workspace,
+            .last_workspace,
+            .goto_workspace,
+            .toggle_workspace_sidebar,
             .new_split,
             .goto_split,
             .goto_window,

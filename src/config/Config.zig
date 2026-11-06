@@ -7148,6 +7148,45 @@ pub const Keybinds = struct {
                 .{ .key = .{ .unicode = 'q' }, .mods = .{ .super = true } },
                 .{ .quit = {} },
             );
+
+            // Workspaces: super+ctrl mirrors the super tab bindings
+            // (t, [, ], 1-9) one modifier up, plus s for the sidebar.
+            {
+                const ws_mods: inputpkg.Mods = .{ .super = true, .ctrl = true };
+                try self.set.put(
+                    alloc,
+                    .{ .key = .{ .unicode = 't' }, .mods = ws_mods },
+                    .{ .new_workspace = {} },
+                );
+                try self.set.put(
+                    alloc,
+                    .{ .key = .{ .unicode = '[' }, .mods = ws_mods },
+                    .{ .previous_workspace = {} },
+                );
+                try self.set.put(
+                    alloc,
+                    .{ .key = .{ .unicode = ']' }, .mods = ws_mods },
+                    .{ .next_workspace = {} },
+                );
+                try self.set.put(
+                    alloc,
+                    .{ .key = .{ .unicode = 's' }, .mods = ws_mods },
+                    .{ .toggle_workspace_sidebar = {} },
+                );
+                comptime var ws_i: u21 = '1';
+                inline while (ws_i <= '8') : (ws_i += 1) {
+                    try self.set.put(
+                        alloc,
+                        .{ .key = .{ .unicode = ws_i }, .mods = ws_mods },
+                        .{ .goto_workspace = (ws_i - '1') + 1 },
+                    );
+                }
+                try self.set.put(
+                    alloc,
+                    .{ .key = .{ .unicode = '9' }, .mods = ws_mods },
+                    .{ .last_workspace = {} },
+                );
+            }
             try self.set.putFlags(
                 alloc,
                 .{ .key = .{ .unicode = 'k' }, .mods = .{ .super = true } },

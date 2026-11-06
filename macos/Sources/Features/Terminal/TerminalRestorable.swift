@@ -58,7 +58,7 @@ extension TerminalRestorable {
 
 /// The state stored for terminal window restoration.
 final class TerminalRestorableState: TerminalRestorable {
-    static var version: Int { 7 }
+    static var version: Int { 8 }
     static var minimumVersion: Int { 5 }
 
     var focusedSurface: String? {
@@ -75,6 +75,15 @@ final class TerminalRestorableState: TerminalRestorable {
     }
     var titleOverride: String? {
         internalState.titleOverride
+    }
+    var workspaceGroupID: UUID? { internalState.workspaceGroupID }
+    var workspaceID: UUID? { internalState.workspaceID }
+    var workspaceName: String? { internalState.workspaceName }
+    var workspaceIndex: Int? { internalState.workspaceIndex }
+    var workspaceSelected: Bool? { internalState.workspaceSelected }
+    var workspaceSidebarCollapsed: Bool? { internalState.workspaceSidebarCollapsed }
+    var hiddenWorkspaces: [TerminalRestorableState.HiddenWorkspace<Ghostty.SurfaceView>]? {
+        internalState.hiddenWorkspaces
     }
 
     /// Internal State we use to perform unit tests
@@ -170,6 +179,21 @@ class TerminalWindowRestoration: NSObject, NSWindowRestoration {
 
         // Restore the tab title override
         c.titleOverride = state.titleOverride
+
+        // Rejoin the workspace this tab was in. The windows of a group are
+        // restored one at a time: the first creates the group, the rest join.
+        if let groupID = state.workspaceGroupID, let workspaceID = state.workspaceID {
+            TerminalWorkspaceGroup.restore(
+                c,
+                groupID: groupID,
+                workspaceID: workspaceID,
+                name: state.workspaceName,
+                index: state.workspaceIndex,
+                selected: state.workspaceSelected ?? true,
+                sidebarCollapsed: state.workspaceSidebarCollapsed ?? false,
+                hidden: state.hiddenWorkspaces ?? [],
+                ghostty: appDelegate.ghostty)
+        }
 
         // Setup our restored state on the controller
         // Find the focused surface in surfaceTree

@@ -90,6 +90,12 @@ class AppDelegate: NSObject,
     @IBOutlet private var menuTerminalInspector: NSMenuItem?
     @IBOutlet private var menuCommandPalette: NSMenuItem?
 
+    @IBOutlet private var menuNewWorkspace: NSMenuItem?
+    @IBOutlet private var menuCloseWorkspace: NSMenuItem?
+    @IBOutlet private var menuPreviousWorkspace: NSMenuItem?
+    @IBOutlet private var menuNextWorkspace: NSMenuItem?
+    @IBOutlet private var menuToggleWorkspaceSidebar: NSMenuItem?
+
     @IBOutlet private var menuEqualizeSplits: NSMenuItem?
     @IBOutlet private var menuMoveSplitDividerUp: NSMenuItem?
     @IBOutlet private var menuMoveSplitDividerDown: NSMenuItem?
@@ -307,6 +313,11 @@ class AppDelegate: NSObject,
             self,
             selector: #selector(ghosttyNewTab(_:)),
             name: Ghostty.Notification.ghosttyNewTab,
+            object: nil)
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(ghosttyNewWorkspace(_:)),
+            name: Ghostty.Notification.ghosttyNewWorkspace,
             object: nil)
 
         // Configure user notifications
@@ -815,6 +826,19 @@ class AppDelegate: NSObject,
         _ = TerminalController.newTab(ghostty, from: window, withBaseConfig: config)
     }
 
+    @objc private func ghosttyNewWorkspace(_ notification: Notification) {
+        guard let surfaceView = notification.object as? Ghostty.SurfaceView else { return }
+        guard let window = surfaceView.window else { return }
+
+        // Only regular terminal windows have workspaces.
+        guard window.windowController is TerminalController else { return }
+
+        let configAny = notification.userInfo?[Ghostty.Notification.NewSurfaceConfigKey]
+        let config = configAny as? Ghostty.SurfaceConfiguration
+
+        _ = TerminalController.newWorkspace(ghostty, from: window, withBaseConfig: config)
+    }
+
     private func setDockBadge() {
         let bellCount = NSApp.windows
             .compactMap { $0.windowController as? BaseTerminalController }
@@ -1290,6 +1314,11 @@ extension AppDelegate {
         syncMenuShortcut(config, action: "toggle_window_float_on_top", menuItem: self.menuFloatOnTop)
         syncMenuShortcut(config, action: "inspector:toggle", menuItem: self.menuTerminalInspector)
         syncMenuShortcut(config, action: "toggle_command_palette", menuItem: self.menuCommandPalette)
+
+        syncMenuShortcut(config, action: "new_workspace", menuItem: self.menuNewWorkspace)
+        syncMenuShortcut(config, action: "previous_workspace", menuItem: self.menuPreviousWorkspace)
+        syncMenuShortcut(config, action: "next_workspace", menuItem: self.menuNextWorkspace)
+        syncMenuShortcut(config, action: "toggle_workspace_sidebar", menuItem: self.menuToggleWorkspaceSidebar)
 
         syncMenuShortcut(config, action: "toggle_secure_input", menuItem: self.menuSecureInput)
 
