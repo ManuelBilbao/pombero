@@ -1,4 +1,5 @@
 import SwiftUI
+import UniformTypeIdentifiers
 
 /// The sidebar listing a window's workspaces.
 ///
@@ -14,6 +15,25 @@ struct WorkspaceSidebarView: View {
 
     let onNewWorkspace: () -> Void
     let onCloseWorkspace: (TerminalWorkspace) -> Void
+
+    /// The workspace being dragged to a new position, in the list or the
+    /// rail. Set and cleared by the drag source's session callbacks.
+    @State private var draggingWorkspace: TerminalWorkspace?
+
+    private func dragSource(for workspace: TerminalWorkspace) -> WorkspaceDragSource {
+        WorkspaceDragSource(
+            workspace: workspace,
+            onClick: { group.select(workspace) },
+            onClose: { onCloseWorkspace(workspace) },
+            onNew: onNewWorkspace,
+            onDragChanged: { dragging in
+                draggingWorkspace = dragging ? workspace : nil
+            })
+    }
+
+    private func reorderDelegate(for workspace: TerminalWorkspace) -> WorkspaceReorderDelegate {
+        WorkspaceReorderDelegate(target: workspace, group: group, dragging: $draggingWorkspace)
+    }
 
     static let expandedWidth: CGFloat = 200
     static let collapsedWidth: CGFloat = 44
@@ -69,15 +89,19 @@ struct WorkspaceSidebarView: View {
             .padding(.bottom, 6)
 
             ScrollView {
-                VStack(spacing: 2) {
+                VStack(spacing: 0) {
                     ForEach(Array(group.workspaces.enumerated()), id: \.element.id) { index, workspace in
                         WorkspaceRow(
                             workspace: workspace,
                             index: index,
-                            isSelected: workspace.id == group.selectedID,
-                            onSelect: { group.select(workspace) },
-                            onClose: { onCloseWorkspace(workspace) },
-                            onNew: onNewWorkspace)
+                            isSelected: workspace.id == group.selectedID)
+                            .opacity(draggingWorkspace === workspace ? 0.4 : 1)
+                            .overlay(dragSource(for: workspace))
+                            // The drop zone includes the spacing so a drag is
+                            // always over some row while it is in the list.
+                            .padding(.vertical, 1)
+                            .contentShape(Rectangle())
+                            .onDrop(of: [.ghosttyWorkspaceId], delegate: reorderDelegate(for: workspace))
                     }
                 }
                 .padding(.horizontal, 8)
@@ -103,7 +127,7 @@ struct WorkspaceSidebarView: View {
     }
 
     private var rail: some View {
-        VStack(spacing: 6) {
+        VStack(spacing: 0) {
             Button {
                 group.isSidebarCollapsed = false
             } label: {
@@ -117,24 +141,21 @@ struct WorkspaceSidebarView: View {
             .accessibilityLabel("Expand Sidebar")
 
             ForEach(Array(group.workspaces.enumerated()), id: \.element.id) { index, workspace in
-                Button {
-                    group.select(workspace)
-                } label: {
-                    WorkspaceBadge(
-                        workspace: workspace,
-                        index: index,
-                        isSelected: workspace.id == group.selectedID,
-                        size: 26)
-                }
-                .buttonStyle(.plain)
-                .help(workspace.name)
-                .accessibilityLabel(workspace.name)
-                .contextMenu {
-                    WorkspaceMenuItems(
-                        workspace: workspace,
-                        onClose: { onCloseWorkspace(workspace) },
-                        onNew: onNewWorkspace)
-                }
+                WorkspaceBadge(
+                    workspace: workspace,
+                    index: index,
+                    isSelected: workspace.id == group.selectedID,
+                    size: 26)
+                    .accessibilityLabel(workspace.name)
+                    .accessibilityAddTraits(.isButton)
+                    .opacity(draggingWorkspace === workspace ? 0.4 : 1)
+                    .overlay(dragSource(for: workspace))
+                    // The drop zone is the full rail width plus the spacing,
+                    // so a release anywhere along the rail lands on a badge.
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 3)
+                    .contentShape(Rectangle())
+                    .onDrop(of: [.ghosttyWorkspaceId], delegate: reorderDelegate(for: workspace))
             }
 
             Spacer()
@@ -149,6 +170,36 @@ struct WorkspaceSidebarView: View {
             .accessibilityLabel("New Workspace")
         }
         .frame(maxWidth: .infinity)
+    }
+}
+
+/// Reorders workspaces while one is dragged over another: the dragged
+/// workspace takes the hovered one's place as soon as the pointer enters
+/// it, so the list reflows live and the drop just ends the drag.
+private struct WorkspaceReorderDelegate: DropDelegate {
+    let target: TerminalWorkspace
+    let group: TerminalWorkspaceGroup
+    @Binding var dragging: TerminalWorkspace?
+
+    func validateDrop(info: DropInfo) -> Bool {
+        info.hasItemsConforming(to: [.ghosttyWorkspaceId])
+    }
+
+    func dropEntered(info: DropInfo) {
+        guard let dragging, dragging !== target else { return }
+        withAnimation(.easeInOut(duration: 0.15)) {
+            group.moveWorkspace(dragging, to: target)
+        }
+    }
+
+    func dropUpdated(info: DropInfo) -> DropProposal? {
+        DropProposal(operation: .move)
+    }
+
+    func performDrop(info: DropInfo) -> Bool {
+        // The order was already applied while hovering; the drag source's
+        // session callback clears the drag state.
+        true
     }
 }
 
@@ -220,9 +271,6 @@ private struct WorkspaceRow: View {
     @ObservedObject var workspace: TerminalWorkspace
     let index: Int
     let isSelected: Bool
-    let onSelect: () -> Void
-    let onClose: () -> Void
-    let onNew: () -> Void
 
     var body: some View {
         HStack(spacing: 8) {
@@ -254,13 +302,6 @@ private struct WorkspaceRow: View {
                 .fill(isSelected ? Color.accentColor.opacity(0.3) : Color.clear)
         )
         .contentShape(Rectangle())
-        .onTapGesture { onSelect() }
-        .contextMenu {
-            WorkspaceMenuItems(
-                workspace: workspace,
-                onClose: onClose,
-                onNew: onNew)
-        }
         .accessibilityElement(children: .combine)
         .accessibilityAddTraits(isSelected ? [.isSelected, .isButton] : .isButton)
     }
@@ -326,33 +367,6 @@ private struct WorkspaceBadge: View {
             Text(icon)
                 .font(.system(size: size * 0.5, weight: .semibold))
         }
-    }
-}
-
-/// The context menu shared by the rail badges and the list rows.
-private struct WorkspaceMenuItems: View {
-    @ObservedObject var workspace: TerminalWorkspace
-    let onClose: () -> Void
-    let onNew: () -> Void
-
-    var body: some View {
-        Button("Edit Workspace…") { WorkspaceEditPanel.present(for: workspace) }
-        Menu("Color") {
-            ForEach(TerminalTabColor.allCases, id: \.self) { color in
-                Button {
-                    workspace.color = color
-                } label: {
-                    HStack {
-                        Image(nsImage: color.swatchImage(selected: workspace.color == color))
-                        Text(color.localizedName)
-                    }
-                }
-            }
-        }
-        Divider()
-        Button("Close Workspace", action: onClose)
-        Divider()
-        Button("New Workspace", action: onNew)
     }
 }
 

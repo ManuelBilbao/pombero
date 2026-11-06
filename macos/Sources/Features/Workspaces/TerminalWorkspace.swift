@@ -188,6 +188,19 @@ final class TerminalWorkspaceGroup: ObservableObject {
         return workspace
     }
 
+    /// Move a workspace to the position of another one. The sidebar order is
+    /// also the order of `goto_workspace` and of the saved state.
+    func moveWorkspace(_ workspace: TerminalWorkspace, to target: TerminalWorkspace) {
+        guard let from = workspaces.firstIndex(where: { $0 === workspace }),
+              let to = workspaces.firstIndex(where: { $0 === target }),
+              from != to else { return }
+        let moved = workspaces.remove(at: from)
+        workspaces.insert(moved, at: to)
+        for controller in allControllers {
+            controller.invalidateRestorableState()
+        }
+    }
+
     /// Add a controller to a workspace of this group, moving it out of any
     /// workspace or group it was in before.
     func add(_ controller: TerminalController, to workspace: TerminalWorkspace) {
