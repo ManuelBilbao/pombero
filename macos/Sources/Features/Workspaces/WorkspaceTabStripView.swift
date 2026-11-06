@@ -19,7 +19,10 @@ struct WorkspaceTabStripView: View {
 
     private var tabs: [(controller: TerminalController, window: NSWindow)] {
         group.visibleTabs.compactMap { weak in
-            guard let controller = weak.value, let window = controller.window else { return nil }
+            // A closed tab's controller outlives its window for a while;
+            // never list it, its window must not be driven or observed.
+            guard let controller = weak.value, !controller.windowIsClosing,
+                  let window = controller.window, window.isVisible else { return nil }
             return (controller, window)
         }
     }

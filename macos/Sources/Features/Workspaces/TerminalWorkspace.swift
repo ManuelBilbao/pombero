@@ -229,6 +229,13 @@ final class TerminalWorkspaceGroup: ObservableObject {
 
         guard workspace.isEmpty else {
             objectWillChange.send()
+            // The tab strip lists the tab group, which drops the closed
+            // window a moment after this runs; refresh now and once more
+            // after AppKit has taken it out.
+            if !isClosing {
+                syncVisibleTabs()
+                DispatchQueue.main.async { [weak self] in self?.syncVisibleTabs() }
+            }
             return
         }
 
@@ -282,7 +289,7 @@ final class TerminalWorkspaceGroup: ObservableObject {
         // A tab that is closing has left its group and an empty tree; it
         // is not a stray.
         for controller in visibleControllers where controller.workspaceGroup !== self {
-            guard !controller.surfaceTree.isEmpty else { continue }
+            guard !controller.surfaceTree.isEmpty, !controller.windowIsClosing else { continue }
             add(controller, to: selected)
         }
 
@@ -337,9 +344,15 @@ final class TerminalWorkspaceGroup: ObservableObject {
     /// workspace. Called whenever a tab is added, closed, reordered or
     /// selected, and after a workspace switch.
     func syncVisibleTabs(from window: NSWindow? = nil) {
+        // A closing window is still visible and listed for a moment, but
+        // it has left its tab group; anchoring on it would show one tab.
+        let candidates = selected.controllers
+            .filter { !$0.windowIsClosing }
+            .compactMap(\.window)
         let anchor = window
-            ?? selected.controllers.compactMap(\.window).first { $0.isKeyWindow }
-            ?? selected.controllers.compactMap(\.window).first { $0.isVisible }
+            ?? candidates.first { $0.isKeyWindow }
+            ?? candidates.first { $0.isVisible && $0.tabGroup != nil }
+            ?? candidates.first { $0.isVisible }
         guard let anchor else {
             if !visibleTabs.isEmpty { visibleTabs = [] }
             return
@@ -347,6 +360,7 @@ final class TerminalWorkspaceGroup: ObservableObject {
 
         let windows = anchor.tabGroup?.windows ?? [anchor]
         let controllers = windows.compactMap { $0.windowController as? TerminalController }
+            .filter { !$0.windowIsClosing }
         if controllers.map(ObjectIdentifier.init) != visibleTabs.compactMap({ $0.value.map(ObjectIdentifier.init) }) {
             visibleTabs = controllers.map { Weak($0) }
         }

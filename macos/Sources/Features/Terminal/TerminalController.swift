@@ -46,6 +46,12 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
     /// changes in the list.
     private var tabWindowsHash: Int = 0
 
+    /// Set once our window started closing. The controller can outlive the
+    /// window for a while (undo keeps it), and the window is still listed
+    /// in its tab group for a moment; workspace bookkeeping must not treat
+    /// it as a live tab in that window.
+    private(set) var windowIsClosing = false
+
     /// True when our window has workspaces besides the one we're in. Those
     /// keep the window alive when the visible workspace's last tab closes.
     private var hasOtherWorkspaces: Bool {
@@ -722,7 +728,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         tabListenForFrame = window?.tabbedWindows?.count ?? 0 > 1
 
         // Keep the in-window tab strip in sync with the native tab group.
-        if let window, window.isVisible {
+        if let window, window.isVisible, !windowIsClosing {
             workspaceGroup?.syncVisibleTabs(from: window)
         }
 
@@ -1392,6 +1398,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
     override func windowWillClose(_ notification: Notification) {
         super.windowWillClose(notification)
         cancelPendingInitialPresentation()
+        windowIsClosing = true
         self.relabelTabs()
 
         // Leave our workspace. If we were the last tab of the visible

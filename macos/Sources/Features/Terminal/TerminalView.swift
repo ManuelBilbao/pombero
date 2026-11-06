@@ -106,7 +106,11 @@ struct TerminalView<ViewModel: TerminalViewModel>: View {
                                 group: group,
                                 backgroundColor: ghostty.config.backgroundColor,
                                 onNewTab: { delegate?.requestNewTab() },
-                                onSelectTab: { $0.window?.makeKeyAndOrderFront(nil) },
+                                onSelectTab: { controller in
+                                    guard !controller.windowIsClosing,
+                                          let window = controller.window, window.isVisible else { return }
+                                    window.makeKeyAndOrderFront(nil)
+                                },
                                 onCloseTab: { delegate?.requestCloseTab($0) })
                         }
 
