@@ -79,6 +79,33 @@ final class TerminalWorkspaceGroup: ObservableObject {
     /// `showsSidebar`.
     @Published var isSidebarCollapsed: Bool = false
 
+    /// The width of the expanded sidebar in points. Dragging the sidebar's
+    /// edge sets it; the value is kept in user defaults so every window,
+    /// now and after a relaunch, uses the same width.
+    @Published private(set) var sidebarWidth: CGFloat = TerminalWorkspaceGroup.storedSidebarWidth()
+
+    static let sidebarWidthRange: ClosedRange<CGFloat> = 140...480
+    private static let sidebarWidthKey = "WorkspaceSidebarWidth"
+
+    private static func storedSidebarWidth() -> CGFloat {
+        let stored = UserDefaults.ghostty.double(forKey: sidebarWidthKey)
+        guard stored > 0 else { return WorkspaceSidebarView.expandedWidth }
+        return min(max(CGFloat(stored), sidebarWidthRange.lowerBound), sidebarWidthRange.upperBound)
+    }
+
+    /// Set the sidebar width. A live drag passes `persist: false` for every
+    /// move and persists once on release; writing defaults per mouse event
+    /// is wasted work.
+    func setSidebarWidth(_ width: CGFloat, persist: Bool = true) {
+        let clamped = min(max(width, Self.sidebarWidthRange.lowerBound), Self.sidebarWidthRange.upperBound)
+        if clamped != sidebarWidth {
+            sidebarWidth = clamped
+        }
+        if persist {
+            UserDefaults.ghostty.set(Double(clamped), forKey: Self.sidebarWidthKey)
+        }
+    }
+
     /// Set while every window of the group is closing so that the removal of
     /// a workspace's last tab doesn't reveal a neighbor workspace.
     var isClosing: Bool = false

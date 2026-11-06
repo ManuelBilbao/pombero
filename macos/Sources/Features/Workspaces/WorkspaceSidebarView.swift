@@ -23,13 +23,13 @@ struct WorkspaceSidebarView: View {
             HStack(spacing: 0) {
                 if group.isSidebarCollapsed {
                     rail
+                    Divider()
                 } else {
                     list
+                    SidebarResizeHandle(group: group)
                 }
-
-                Divider()
             }
-            .frame(width: group.isSidebarCollapsed ? Self.collapsedWidth : Self.expandedWidth)
+            .frame(width: group.isSidebarCollapsed ? Self.collapsedWidth : group.sidebarWidth)
             .background(
                 ZStack {
                     backgroundColor
@@ -142,6 +142,68 @@ struct WorkspaceSidebarView: View {
             .accessibilityLabel("New Workspace")
         }
         .frame(maxWidth: .infinity)
+    }
+}
+
+/// The sidebar's trailing edge: a hairline with a wider invisible grab area
+/// that resizes the sidebar when dragged, like a split divider.
+private struct SidebarResizeHandle: View {
+    @ObservedObject var group: TerminalWorkspaceGroup
+
+    /// The width when the drag started, so the drag is applied as an offset.
+    @State private var dragStartWidth: CGFloat?
+
+    static let grabWidth: CGFloat = 8
+
+    var body: some View {
+        ZStack(alignment: .trailing) {
+            Color.clear
+                .frame(width: Self.grabWidth)
+                .contentShape(Rectangle())
+            Rectangle()
+                .fill(Color.primary.opacity(0.12))
+                .frame(width: 1)
+        }
+        .frame(maxHeight: .infinity)
+        .backport.pointerStyle(.resizeLeftRight)
+        .onHover { isHovered in
+            // macOS 15+ uses pointerStyle above; older systems need the
+            // manual cursor push/pop, see SplitView.Divider.
+            if #available(macOS 15, *) { return }
+            if isHovered {
+                NSCursor.resizeLeftRight.push()
+            } else {
+                NSCursor.pop()
+            }
+        }
+        .gesture(
+            // Global coordinates: the handle itself moves as the width
+            // changes, so a local translation would be measured against a
+            // moving origin and lag or oscillate behind the pointer.
+            DragGesture(minimumDistance: 1, coordinateSpace: .global)
+                .onChanged { gesture in
+                    let start = dragStartWidth ?? group.sidebarWidth
+                    dragStartWidth = start
+                    group.setSidebarWidth(start + gesture.translation.width, persist: false)
+                }
+                .onEnded { gesture in
+                    let start = dragStartWidth ?? group.sidebarWidth
+                    dragStartWidth = nil
+                    group.setSidebarWidth(start + gesture.translation.width)
+                }
+        )
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Workspace sidebar divider")
+        .accessibilityValue("\(Int(group.sidebarWidth)) points")
+        .accessibilityHint("Drag to resize the workspace sidebar")
+        .accessibilityAddTraits(.isButton)
+        .accessibilityAdjustableAction { direction in
+            switch direction {
+            case .increment: group.setSidebarWidth(group.sidebarWidth + 10)
+            case .decrement: group.setSidebarWidth(group.sidebarWidth - 10)
+            @unknown default: break
+            }
+        }
     }
 }
 
