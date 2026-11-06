@@ -82,6 +82,8 @@ final class TerminalRestorableState: TerminalRestorable {
     var workspaceIndex: Int? { internalState.workspaceIndex }
     var workspaceSelected: Bool? { internalState.workspaceSelected }
     var workspaceSidebarCollapsed: Bool? { internalState.workspaceSidebarCollapsed }
+    var workspaceIcon: String? { internalState.workspaceIcon }
+    var workspaceColor: TerminalTabColor? { internalState.workspaceColor }
     var hiddenWorkspaces: [TerminalRestorableState.HiddenWorkspace<Ghostty.SurfaceView>]? {
         internalState.hiddenWorkspaces
     }
@@ -188,6 +190,8 @@ class TerminalWindowRestoration: NSObject, NSWindowRestoration {
                 groupID: groupID,
                 workspaceID: workspaceID,
                 name: state.workspaceName,
+                icon: state.workspaceIcon,
+                color: state.workspaceColor,
                 index: state.workspaceIndex,
                 selected: state.workspaceSelected ?? true,
                 sidebarCollapsed: state.workspaceSidebarCollapsed ?? false,

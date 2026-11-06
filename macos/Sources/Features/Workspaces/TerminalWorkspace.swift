@@ -13,6 +13,13 @@ final class TerminalWorkspace: Identifiable, ObservableObject {
     /// The user-visible name shown in the sidebar.
     @Published var name: String
 
+    /// A custom badge for the sidebar: a letter, an emoji or an SF Symbol
+    /// name. Nil shows the workspace number.
+    @Published var icon: String?
+
+    /// The badge's background color. `.none` is the default tint.
+    @Published var color: TerminalTabColor = .none
+
     /// The tabs of this workspace in tab bar order. The windows own their
     /// controllers, so these are weak and closed tabs fall out on `prune`.
     @Published private(set) var tabs: [Weak<TerminalController>] = []
@@ -450,6 +457,8 @@ extension TerminalWorkspaceGroup {
         groupID: UUID,
         workspaceID: UUID,
         name: String?,
+        icon: String?,
+        color: TerminalTabColor?,
         index: Int?,
         selected: Bool,
         sidebarCollapsed: Bool,
@@ -457,20 +466,23 @@ extension TerminalWorkspaceGroup {
         ghostty: Ghostty.App
     ) {
         let group: TerminalWorkspaceGroup
+        let workspace: TerminalWorkspace
         if let existing = restoring[groupID] {
             group = existing
-            let workspace = group.workspace(id: workspaceID)
+            workspace = group.workspace(id: workspaceID)
                 ?? group.makeWorkspace(named: name, id: workspaceID)
             group.add(controller, to: workspace)
         } else {
             group = TerminalWorkspaceGroup(initial: controller, id: groupID)
-            let first = TerminalWorkspace(name: name ?? group.selected.name, id: workspaceID)
-            first.append(controller)
-            first.selectedTab = controller
-            group.workspaces = [first]
+            workspace = TerminalWorkspace(name: name ?? group.selected.name, id: workspaceID)
+            workspace.append(controller)
+            workspace.selectedTab = controller
+            group.workspaces = [workspace]
             group.selectedID = workspaceID
             restoring[groupID] = group
         }
+        if let icon { workspace.icon = icon }
+        if let color { workspace.color = color }
 
         group.isSidebarCollapsed = sidebarCollapsed
         if let index { group.restoredIndices[workspaceID] = index }
@@ -483,6 +495,8 @@ extension TerminalWorkspaceGroup {
             for saved in hidden {
                 let workspace = group.workspace(id: saved.id)
                     ?? group.makeWorkspace(named: saved.name, id: saved.id)
+                workspace.icon = saved.icon
+                workspace.color = saved.color ?? .none
                 group.restoredIndices[saved.id] = saved.index
                 for tab in saved.tabs where !tab.surfaceTree.isEmpty {
                     let restored = TerminalController(ghostty, withSurfaceTree: tab.surfaceTree)

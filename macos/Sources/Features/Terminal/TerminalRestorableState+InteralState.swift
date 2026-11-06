@@ -23,6 +23,8 @@ extension TerminalRestorableState {
         let workspaceIndex: Int?
         let workspaceSelected: Bool?
         let workspaceSidebarCollapsed: Bool?
+        let workspaceIcon: String?
+        let workspaceColor: TerminalTabColor?
 
         /// The workspaces of the window that are not on screen. AppKit only
         /// persists visible windows, so every visible tab carries the hidden
@@ -36,6 +38,8 @@ extension TerminalRestorableState {
         let name: String
         let index: Int
         let tabs: [TerminalRestorableState.HiddenTab<ViewType>]
+        let icon: String?
+        let color: TerminalTabColor?
     }
 
     /// One tab of a hidden workspace: what a window needs to come back.
@@ -65,6 +69,8 @@ extension TerminalRestorableState.InternalState where ViewType == Ghostty.Surfac
                 group.selected.contains(controller)
             },
             workspaceSidebarCollapsed: controller.workspaceGroup?.isSidebarCollapsed,
+            workspaceIcon: controller.workspaceGroup?.workspace(containing: controller)?.icon,
+            workspaceColor: controller.workspaceGroup?.workspace(containing: controller)?.color,
             hiddenWorkspaces: controller.workspaceGroup.map { group in
                 group.workspaces.enumerated()
                     .filter { $0.element.id != group.selectedID }
@@ -79,7 +85,9 @@ extension TerminalRestorableState.InternalState where ViewType == Ghostty.Surfac
                                     surfaceTree: tab.surfaceTree,
                                     tabColor: (tab.window as? TerminalWindow)?.tabColor,
                                     titleOverride: tab.titleOverride)
-                            })
+                            },
+                            icon: workspace.icon,
+                            color: workspace.color)
                     }
             },
         )

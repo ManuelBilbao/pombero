@@ -120,18 +120,22 @@ struct WorkspaceSidebarView: View {
                 Button {
                     group.select(workspace)
                 } label: {
-                    Text("\(index + 1)")
-                        .font(.system(size: 11, weight: .semibold, design: .monospaced))
-                        .frame(width: 26, height: 26)
-                        .background(
-                            Circle().fill(workspace.id == group.selectedID
-                                          ? Color.accentColor.opacity(0.3)
-                                          : Color.primary.opacity(0.06))
-                        )
+                    WorkspaceBadge(
+                        workspace: workspace,
+                        index: index,
+                        isSelected: workspace.id == group.selectedID,
+                        size: 26)
                 }
                 .buttonStyle(.plain)
                 .help(workspace.name)
                 .accessibilityLabel(workspace.name)
+                .contextMenu {
+                    WorkspaceMenuItems(
+                        workspace: workspace,
+                        onRename: { WorkspacePrompts.promptName(for: workspace) },
+                        onClose: { onCloseWorkspace(workspace) },
+                        onNew: onNewWorkspace)
+                }
             }
 
             Spacer()
@@ -227,10 +231,11 @@ private struct WorkspaceRow: View {
 
     var body: some View {
         HStack(spacing: 8) {
-            Text("\(index + 1)")
-                .font(.system(size: 11, weight: .medium, design: .monospaced))
-                .foregroundStyle(.secondary)
-                .frame(width: 14, alignment: .trailing)
+            WorkspaceBadge(
+                workspace: workspace,
+                index: index,
+                isSelected: isSelected,
+                size: 18)
 
             if isRenaming {
                 TextField("Name", text: $draft, onCommit: commitRename)
@@ -267,10 +272,11 @@ private struct WorkspaceRow: View {
             onSelect()
         }
         .contextMenu {
-            Button("Rename…") { beginRename() }
-            Button("Close Workspace") { onClose() }
-            Divider()
-            Button("New Workspace") { onNew() }
+            WorkspaceMenuItems(
+                workspace: workspace,
+                onRename: { beginRename() },
+                onClose: onClose,
+                onNew: onNew)
         }
         .accessibilityElement(children: .combine)
         .accessibilityAddTraits(isSelected ? [.isSelected, .isButton] : .isButton)
@@ -299,5 +305,158 @@ private struct WorkspaceRow: View {
         // field was first responder, and nothing else claims focus when it
         // goes away.
         TerminalWorkspaceGroup.refocusTerminal()
+    }
+}
+
+/// The round badge of a workspace: its number, or the custom letter, emoji
+/// or SF Symbol, on the chosen color.
+private struct WorkspaceBadge: View {
+    @ObservedObject var workspace: TerminalWorkspace
+    let index: Int
+    let isSelected: Bool
+    let size: CGFloat
+
+    /// The gap between the badge and the selection ring, and the ring width.
+    /// Their sum is a whole number of points so the badge circle sits on
+    /// pixel boundaries inside the ring; a fractional inset renders the
+    /// gap a pixel wider on one side than the other.
+    private var ringGap: CGFloat { 2.5 }
+    private var ringWidth: CGFloat { 1.5 }
+
+    /// Every badge takes the ring's room, selected or not, so the badges
+    /// line up and the frame (which focus and menu highlights follow) is
+    /// always centered on the circle.
+    private var outerSize: CGFloat { size + 2 * (ringGap + ringWidth) }
+
+    var body: some View {
+        ZStack {
+            // The current workspace wears a thin ring just outside the badge.
+            if isSelected {
+                Circle().strokeBorder(ringColor, lineWidth: ringWidth)
+            }
+
+            ZStack {
+                Circle().fill(fill)
+                content
+                    .foregroundStyle(workspace.color == .none ? Color.primary : Color.white)
+            }
+            .frame(width: size, height: size)
+        }
+        .frame(width: outerSize, height: outerSize)
+    }
+
+    private var ringColor: Color {
+        if let nsColor = workspace.color.displayColor {
+            return Color(nsColor: nsColor)
+        }
+        return Color.accentColor
+    }
+
+    private var fill: Color {
+        if let nsColor = workspace.color.displayColor {
+            return Color(nsColor: nsColor).opacity(isSelected ? 0.95 : 0.55)
+        }
+        return isSelected ? Color.accentColor.opacity(0.3) : Color.primary.opacity(0.06)
+    }
+
+    @ViewBuilder private var content: some View {
+        let icon = workspace.icon?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if icon.isEmpty {
+            Text("\(index + 1)")
+                .font(.system(size: size * 0.42, weight: .semibold, design: .monospaced))
+        } else if icon.count <= 2 {
+            Text(icon)
+                .font(.system(size: size * 0.5, weight: .semibold))
+        } else if NSImage(systemSymbolName: icon, accessibilityDescription: nil) != nil {
+            Image(systemName: icon)
+                .font(.system(size: size * 0.46, weight: .semibold))
+        } else {
+            Text(String(icon.prefix(1)))
+                .font(.system(size: size * 0.5, weight: .semibold))
+        }
+    }
+}
+
+/// The context menu shared by the rail badges and the list rows.
+private struct WorkspaceMenuItems: View {
+    @ObservedObject var workspace: TerminalWorkspace
+    let onRename: () -> Void
+    let onClose: () -> Void
+    let onNew: () -> Void
+
+    var body: some View {
+        Button("Rename…", action: onRename)
+        Button("Set Icon…") { WorkspacePrompts.promptIcon(for: workspace) }
+        Menu("Color") {
+            ForEach(TerminalTabColor.allCases, id: \.self) { color in
+                Button {
+                    workspace.color = color
+                } label: {
+                    HStack {
+                        Image(nsImage: color.swatchImage(selected: workspace.color == color))
+                        Text(color.localizedName)
+                    }
+                }
+            }
+        }
+        Divider()
+        Button("Close Workspace", action: onClose)
+        Divider()
+        Button("New Workspace", action: onNew)
+    }
+}
+
+/// Text prompts for workspace properties, as sheets on the key window the
+/// way Ghostty prompts for tab titles.
+enum WorkspacePrompts {
+    static func promptName(for workspace: TerminalWorkspace) {
+        prompt(
+            title: "Rename Workspace",
+            message: "",
+            value: workspace.name
+        ) { value in
+            if !value.isEmpty { workspace.name = value }
+        }
+    }
+
+    static func promptIcon(for workspace: TerminalWorkspace) {
+        prompt(
+            title: "Workspace Icon",
+            message: "A letter, an emoji or an SF Symbol name. Leave it empty to show the workspace number.",
+            value: workspace.icon ?? ""
+        ) { value in
+            workspace.icon = value.isEmpty ? nil : value
+        }
+    }
+
+    private static func prompt(
+        title: String,
+        message: String,
+        value: String,
+        completion: @escaping (String) -> Void
+    ) {
+        let alert = NSAlert()
+        alert.messageText = title
+        alert.informativeText = message
+        alert.addButton(withTitle: "OK")
+        alert.addButton(withTitle: "Cancel")
+
+        let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 250, height: 24))
+        field.stringValue = value
+        alert.accessoryView = field
+        alert.window.initialFirstResponder = field
+
+        let finish: (NSApplication.ModalResponse) -> Void = { response in
+            if response == .alertFirstButtonReturn {
+                completion(field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines))
+            }
+            TerminalWorkspaceGroup.refocusTerminal()
+        }
+
+        if let window = NSApp.keyWindow {
+            alert.beginSheetModal(for: window, completionHandler: finish)
+        } else {
+            finish(alert.runModal())
+        }
     }
 }
