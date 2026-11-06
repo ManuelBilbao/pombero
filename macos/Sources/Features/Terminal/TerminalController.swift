@@ -666,6 +666,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
     }
 
     private func closeWorkspaceImmediately(_ workspace: TerminalWorkspace) {
+        workspaceGroup?.prepareToClose(workspace)
         for controller in workspace.controllers {
             controller.cancelPendingInitialPresentation()
             // Clear the tree so the close doesn't register per-tab undo.
@@ -858,6 +859,14 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         }
 
         cancelPendingInitialPresentation()
+
+        // If we're the last tab of the visible workspace, bring the next
+        // workspace into our tab group before we go so the window stays put.
+        if let group = workspaceGroup,
+           let workspace = group.workspace(containing: self),
+           workspace.controllers.count == 1 {
+            group.prepareToClose(workspace)
+        }
 
         // Undo
         if let undoManager, let undoState {

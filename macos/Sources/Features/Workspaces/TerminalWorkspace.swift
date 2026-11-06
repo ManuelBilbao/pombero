@@ -223,7 +223,12 @@ final class TerminalWorkspaceGroup: ObservableObject {
                 reveal(neighbor, anchor: nil, frame: frame ?? lastFrame)
             }
         }
-        if !isClosing { syncVisibleTabs() }
+        if !isClosing {
+            syncVisibleTabs()
+            // A closing window is still in its tab group at this point;
+            // sync again once AppKit has taken it out.
+            DispatchQueue.main.async { [weak self] in self?.syncVisibleTabs() }
+        }
     }
 
     /// Workspace membership can drift because AppKit lets users drag tabs
@@ -282,6 +287,27 @@ final class TerminalWorkspaceGroup: ObservableObject {
         if selected.contains(me) {
             selected.selectedTab = me
         }
+    }
+
+    /// Call before closing the tabs of `workspace`. If it is the visible
+    /// workspace and others remain, a neighbor is shown first as tabs of the
+    /// same native tab group, so the window stays where it is and the user
+    /// sees a tab switch instead of a window closing and another opening.
+    func prepareToClose(_ workspace: TerminalWorkspace) {
+        guard workspace.id == selectedID, workspaces.count > 1 else { return }
+        guard let index = workspaces.firstIndex(where: { $0 === workspace }) else { return }
+        let neighbor = index + 1 < workspaces.count ? workspaces[index + 1] : workspaces[index - 1]
+
+        let anchor = workspace.controllers.compactMap(\.window).first { $0.isKeyWindow }
+            ?? workspace.controllers.compactMap(\.window).first { $0.isVisible }
+        if let anchor { lastFrame = anchor.frame }
+
+        selectedID = neighbor.id
+        NSAnimationContext.beginGrouping()
+        NSAnimationContext.current.duration = 0
+        reveal(neighbor, anchor: anchor, frame: anchor?.frame ?? lastFrame)
+        NSAnimationContext.endGrouping()
+        syncVisibleTabs()
     }
 
     // MARK: Tab strip
