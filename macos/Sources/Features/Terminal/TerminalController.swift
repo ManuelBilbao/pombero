@@ -529,6 +529,13 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         // for HiddenTitlebarTerminalWindow.
         controller.showWindowSafely(self)
 
+        // With the workspace sidebar in the window, AppKit can hand the new
+        // window's initial focus to a sidebar control; the terminal must
+        // have it.
+        if parentController.workspaceGroup?.showsSidebar ?? false {
+            TerminalWorkspaceGroup.refocusTerminal(of: controller)
+        }
+
         // Windows with `macos-titlebar-style = hidden` create new windows when the
         // new tab binding is pressed, we should cascade those windows as well.
 
