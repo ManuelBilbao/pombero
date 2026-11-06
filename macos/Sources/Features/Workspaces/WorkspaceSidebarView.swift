@@ -132,7 +132,6 @@ struct WorkspaceSidebarView: View {
                 .contextMenu {
                     WorkspaceMenuItems(
                         workspace: workspace,
-                        onRename: { WorkspacePrompts.promptName(for: workspace) },
                         onClose: { onCloseWorkspace(workspace) },
                         onNew: onNewWorkspace)
                 }
@@ -225,10 +224,6 @@ private struct WorkspaceRow: View {
     let onClose: () -> Void
     let onNew: () -> Void
 
-    @State private var isRenaming = false
-    @State private var draft = ""
-    @FocusState private var renameFocused: Bool
-
     var body: some View {
         HStack(spacing: 8) {
             WorkspaceBadge(
@@ -237,18 +232,10 @@ private struct WorkspaceRow: View {
                 isSelected: isSelected,
                 size: 18)
 
-            if isRenaming {
-                TextField("Name", text: $draft, onCommit: commitRename)
-                    .textFieldStyle(.plain)
-                    .font(.system(size: 12))
-                    .focused($renameFocused)
-                    .onExitCommand { endRename() }
-            } else {
-                Text(workspace.name)
-                    .font(.system(size: 12))
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-            }
+            Text(workspace.name)
+                .font(.system(size: 12))
+                .lineLimit(1)
+                .truncationMode(.tail)
 
             Spacer(minLength: 4)
 
@@ -267,49 +254,20 @@ private struct WorkspaceRow: View {
                 .fill(isSelected ? Color.accentColor.opacity(0.3) : Color.clear)
         )
         .contentShape(Rectangle())
-        .onTapGesture {
-            guard !isRenaming else { return }
-            onSelect()
-        }
+        .onTapGesture { onSelect() }
         .contextMenu {
             WorkspaceMenuItems(
                 workspace: workspace,
-                onRename: { beginRename() },
                 onClose: onClose,
                 onNew: onNew)
         }
         .accessibilityElement(children: .combine)
         .accessibilityAddTraits(isSelected ? [.isSelected, .isButton] : .isButton)
     }
-
-    private func beginRename() {
-        draft = workspace.name
-        isRenaming = true
-        // The field is not in the hierarchy yet when the menu item runs.
-        DispatchQueue.main.async { renameFocused = true }
-    }
-
-    private func commitRename() {
-        let trimmed = draft.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !trimmed.isEmpty {
-            workspace.name = trimmed
-        }
-        endRename()
-    }
-
-    private func endRename() {
-        isRenaming = false
-        renameFocused = false
-
-        // Hand keyboard focus back to the terminal that had it. The text
-        // field was first responder, and nothing else claims focus when it
-        // goes away.
-        TerminalWorkspaceGroup.refocusTerminal()
-    }
 }
 
-/// The round badge of a workspace: its number, or the custom letter, emoji
-/// or SF Symbol, on the chosen color.
+/// The round badge of a workspace: its number, or the custom character
+/// (a letter or an emoji), on the chosen color.
 private struct WorkspaceBadge: View {
     @ObservedObject var workspace: TerminalWorkspace
     let index: Int
@@ -360,18 +318,12 @@ private struct WorkspaceBadge: View {
     }
 
     @ViewBuilder private var content: some View {
-        let icon = workspace.icon?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let icon = WorkspaceEditPanel.singleCharacter(workspace.icon ?? "")
         if icon.isEmpty {
             Text("\(index + 1)")
                 .font(.system(size: size * 0.42, weight: .semibold, design: .monospaced))
-        } else if icon.count <= 2 {
-            Text(icon)
-                .font(.system(size: size * 0.5, weight: .semibold))
-        } else if NSImage(systemSymbolName: icon, accessibilityDescription: nil) != nil {
-            Image(systemName: icon)
-                .font(.system(size: size * 0.46, weight: .semibold))
         } else {
-            Text(String(icon.prefix(1)))
+            Text(icon)
                 .font(.system(size: size * 0.5, weight: .semibold))
         }
     }
@@ -380,13 +332,11 @@ private struct WorkspaceBadge: View {
 /// The context menu shared by the rail badges and the list rows.
 private struct WorkspaceMenuItems: View {
     @ObservedObject var workspace: TerminalWorkspace
-    let onRename: () -> Void
     let onClose: () -> Void
     let onNew: () -> Void
 
     var body: some View {
-        Button("Rename…", action: onRename)
-        Button("Set Icon…") { WorkspacePrompts.promptIcon(for: workspace) }
+        Button("Edit Workspace…") { WorkspaceEditPanel.present(for: workspace) }
         Menu("Color") {
             ForEach(TerminalTabColor.allCases, id: \.self) { color in
                 Button {
@@ -406,50 +356,89 @@ private struct WorkspaceMenuItems: View {
     }
 }
 
-/// Text prompts for workspace properties, as sheets on the key window the
-/// way Ghostty prompts for tab titles.
-enum WorkspacePrompts {
-    static func promptName(for workspace: TerminalWorkspace) {
-        prompt(
-            title: "Rename Workspace",
-            message: "",
-            value: workspace.name
-        ) { value in
-            if !value.isEmpty { workspace.name = value }
-        }
+/// The "Edit Workspace" sheet: the name and the one-character icon in one
+/// dialog, with a button that opens the system emoji palette for the icon.
+/// Presented as a sheet on the key window the way Ghostty prompts for tab
+/// titles.
+final class WorkspaceEditPanel: NSObject, NSTextFieldDelegate {
+    /// Panels stay alive while their sheet is up.
+    private static var active: Set<WorkspaceEditPanel> = []
+
+    private let workspace: TerminalWorkspace
+    private let alert = NSAlert()
+    private let nameField = NSTextField(string: "")
+    private let iconField = NSTextField(string: "")
+
+    static func present(for workspace: TerminalWorkspace) {
+        let panel = WorkspaceEditPanel(workspace)
+        active.insert(panel)
+        panel.run()
     }
 
-    static func promptIcon(for workspace: TerminalWorkspace) {
-        prompt(
-            title: "Workspace Icon",
-            message: "A letter, an emoji or an SF Symbol name. Leave it empty to show the workspace number.",
-            value: workspace.icon ?? ""
-        ) { value in
-            workspace.icon = value.isEmpty ? nil : value
-        }
+    /// The icon is one character: a letter, a digit or an emoji (one
+    /// grapheme, so flags and skin tones stay whole). When more was typed,
+    /// the last character wins, which is what replacing feels like.
+    static func singleCharacter(_ value: String) -> String {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return String(trimmed.suffix(1))
     }
 
-    private static func prompt(
-        title: String,
-        message: String,
-        value: String,
-        completion: @escaping (String) -> Void
-    ) {
-        let alert = NSAlert()
-        alert.messageText = title
-        alert.informativeText = message
+    private init(_ workspace: TerminalWorkspace) {
+        self.workspace = workspace
+        super.init()
+        build()
+    }
+
+    private func build() {
+        alert.messageText = "Edit Workspace"
+        alert.informativeText = "The icon is a single character, such as a letter or an emoji. Leave it empty to show the workspace number."
         alert.addButton(withTitle: "OK")
         alert.addButton(withTitle: "Cancel")
 
-        let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 250, height: 24))
-        field.stringValue = value
-        alert.accessoryView = field
-        alert.window.initialFirstResponder = field
+        nameField.stringValue = workspace.name
+        nameField.placeholderString = "Name"
+        nameField.translatesAutoresizingMaskIntoConstraints = false
+        nameField.widthAnchor.constraint(equalToConstant: 240).isActive = true
 
-        let finish: (NSApplication.ModalResponse) -> Void = { response in
+        iconField.stringValue = workspace.icon ?? ""
+        iconField.placeholderString = "–"
+        iconField.alignment = .center
+        iconField.font = .systemFont(ofSize: 18)
+        iconField.delegate = self
+        iconField.translatesAutoresizingMaskIntoConstraints = false
+        iconField.widthAnchor.constraint(equalToConstant: 44).isActive = true
+
+        let emojiButton = NSButton(
+            title: "Emoji & Symbols…",
+            target: self,
+            action: #selector(openCharacterPalette(_:)))
+        emojiButton.bezelStyle = .rounded
+
+        let iconRow = NSStackView(views: [iconField, emojiButton])
+        iconRow.orientation = .horizontal
+        iconRow.spacing = 8
+
+        let grid = NSGridView(views: [
+            [NSTextField(labelWithString: "Name:"), nameField],
+            [NSTextField(labelWithString: "Icon:"), iconRow],
+        ])
+        grid.column(at: 0).xPlacement = .trailing
+        grid.rowAlignment = .firstBaseline
+        grid.rowSpacing = 8
+        grid.columnSpacing = 8
+        grid.layoutSubtreeIfNeeded()
+        grid.frame = NSRect(origin: .zero, size: grid.fittingSize)
+        alert.accessoryView = grid
+        alert.window.initialFirstResponder = nameField
+        nameField.nextKeyView = iconField
+    }
+
+    private func run() {
+        let finish: (NSApplication.ModalResponse) -> Void = { [self] response in
             if response == .alertFirstButtonReturn {
-                completion(field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines))
+                apply()
             }
+            Self.active.remove(self)
             TerminalWorkspaceGroup.refocusTerminal()
         }
 
@@ -457,6 +446,32 @@ enum WorkspacePrompts {
             alert.beginSheetModal(for: window, completionHandler: finish)
         } else {
             finish(alert.runModal())
+        }
+    }
+
+    private func apply() {
+        let name = nameField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !name.isEmpty {
+            workspace.name = name
+        }
+        let icon = Self.singleCharacter(iconField.stringValue)
+        workspace.icon = icon.isEmpty ? nil : icon
+    }
+
+    /// Opens the system Character Viewer on the icon field, so a picked
+    /// emoji lands there.
+    @objc private func openCharacterPalette(_ sender: Any?) {
+        alert.window.makeFirstResponder(iconField)
+        NSApp.orderFrontCharacterPalette(sender)
+    }
+
+    // MARK: NSTextFieldDelegate
+
+    func controlTextDidChange(_ notification: Notification) {
+        guard let field = notification.object as? NSTextField, field === iconField else { return }
+        let limited = Self.singleCharacter(field.stringValue)
+        if limited != field.stringValue {
+            field.stringValue = limited
         }
     }
 }
