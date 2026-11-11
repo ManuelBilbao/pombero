@@ -120,17 +120,17 @@ jobs:
         env:
           ARTIFACT: ${{ steps.version.outputs.artifact }}
         run: |
-          mkdir -p dist
+          mkdir -p pombero-dist
           ditto -c -k --sequesterRsrc --keepParent \
-            macos/build/ReleaseLocal/Pombero.app "dist/${ARTIFACT}.zip"
-          cd dist
+            macos/build/ReleaseLocal/Pombero.app "pombero-dist/${ARTIFACT}.zip"
+          cd pombero-dist
           shasum -a 256 "${ARTIFACT}.zip" | tee "${ARTIFACT}.zip.sha256"
 
       - name: Upload artifact
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: ${{ steps.version.outputs.artifact }}
-          path: dist/
+          path: pombero-dist/
           if-no-files-found: error
           retention-days: 30
 
@@ -145,7 +145,7 @@ jobs:
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: ${{ needs.build-macos.outputs.artifact }}
-          path: dist
+          path: pombero-dist
 
       - name: Publish release
         env:
@@ -154,7 +154,7 @@ jobs:
         run: |
           prerelease=()
           if [[ "$VERSION" == *-* ]]; then prerelease=(--prerelease); fi
-          gh release create "$GITHUB_REF_NAME" dist/* \
+          gh release create "$GITHUB_REF_NAME" pombero-dist/* \
             --repo "$GITHUB_REPOSITORY" \
             --verify-tag \
             --title "Pombero $VERSION" \
