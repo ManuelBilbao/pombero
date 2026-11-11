@@ -431,12 +431,17 @@ final class TerminalWorkspaceGroup: ObservableObject {
         for controller in controllers {
             guard let window = controller.window else { continue }
             if let frame { window.setFrame(frame, display: false) }
-            if let previous, window.tabbingMode != .disallowed,
-               previous.addTabbedWindowSafely(window, ordered: .above) {
-                // Joined the tab group right after the previous one.
-            } else {
-                window.orderFront(nil)
+            if let previous, window.tabbingMode != .disallowed {
+                // Join the tab group right after the previous one.
+                previous.addTabbedWindowSafely(window, ordered: .above)
             }
+            // A window that joins a tab group while ordered out stays
+            // invisible (isVisible is false) as a background tab until it
+            // is selected, and everything that tells hidden workspaces from
+            // the visible one, the tab strip included, would skip it.
+            // Ordering it front selects it once; the target is selected
+            // last, below.
+            window.orderFront(nil)
             previous = window
         }
 
