@@ -1,0 +1,169 @@
+# Builds the Pombero macOS app (Apple Silicon, ad-hoc signed) and, for
+# pombero-v* tags, publishes it as a GitHub Release.
+#
+# - Push a tag such as pombero-v0.1.0 to publish a release. Tags with a
+#   pre-release suffix (pombero-v0.2.0-rc.1) are marked as pre-releases.
+# - Run it manually from the Actions tab to build any branch. The zip is
+#   kept as a workflow artifact and nothing is published.
+# - Pull requests that change this file get a build so the workflow is
+#   tested before it lands.
+name: Pombero Release
+
+on:
+  push:
+    tags:
+      - "pombero-v*"
+  pull_request:
+    paths:
+      - .github/workflows/pombero-release.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-macos:
+    runs-on: xcode-27
+    timeout-minutes: 90
+    env:
+      XCODE_VERSION: "27.2"
+      ZIG_VERSION: "0.17.1"
+      HOMEBREW_NO_AUTO_UPDATE: "1"
+      HOMEBREW_NO_INSTALL_CLEANUP: "1"
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      artifact: ${{ steps.version.outputs.artifact }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # The Pombero version comes from the tag (pombero-v1.2.3 -> 1.2.3).
+      # Untagged builds get a dev version. Zig gets an explicit version too,
+      # keeping the Ghostty version it is based on and adding Pombero's as
+      # build metadata, so tagged builds don't trip its vX.Y.Z tag check.
+      - name: Determine version
+        id: version
+        run: |
+          commit="$(git rev-parse --short HEAD)"
+          if [[ "$GITHUB_REF" == refs/tags/pombero-v* ]]; then
+            version="${GITHUB_REF_NAME#pombero-v}"
+          else
+            version="0.0.0-dev.${commit}"
+          fi
+          if ! [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+            echo "::error::Tag $GITHUB_REF_NAME must look like pombero-v1.2.3 or pombero-v1.2.3-rc.1"
+            exit 1
+          fi
+          base="$(sed -n 's/^ *\.version = "\(.*\)",$/\1/p' build.zig.zon | head -n1)"
+          if [[ -z "$base" ]]; then
+            echo "::error::Could not read .version from build.zig.zon"
+            exit 1
+          fi
+          {
+            echo "version=$version"
+            echo "commit=$commit"
+            echo "zig_version=${base}+pombero.${version}"
+            echo "artifact=Pombero-${version}-macos-arm64"
+          } | tee -a "$GITHUB_OUTPUT"
+
+      - name: Select Xcode
+        run: |
+          sudo xcode-select -s "/Applications/Xcode_${XCODE_VERSION}.app"
+          xcodebuild -version
+
+      - name: Setup Zig
+        uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2.2.1
+        with:
+          version: ${{ env.ZIG_VERSION }}
+
+      # msgfmt compiles the translations bundled into the app.
+      - name: Install gettext
+        run: |
+          brew install gettext
+          command -v msgfmt
+
+      # Same build as `make release`: ReleaseLocal configuration, ad-hoc
+      # signed, at macos/build/ReleaseLocal/Pombero.app. The native
+      # xcframework target builds arm64 only for a generic Apple Silicon CPU.
+      - name: Build Pombero.app
+        env:
+          ZIG_VERSION_STRING: ${{ steps.version.outputs.zig_version }}
+        run: |
+          zig build \
+            -Doptimize=ReleaseFast \
+            -Dxcframework-target=native \
+            -Demit-docs=false \
+            -Dversion-string="$ZIG_VERSION_STRING"
+
+      # Stamping Info.plist breaks the bundle's signature, and Apple Silicon
+      # refuses to launch a broken one, so re-sign ad hoc keeping the
+      # entitlements and hardened runtime flags Xcode applied.
+      - name: Stamp version and re-sign
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          COMMIT: ${{ steps.version.outputs.commit }}
+        run: |
+          app=macos/build/ReleaseLocal/Pombero.app
+          plist="$app/Contents/Info.plist"
+          /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $VERSION" "$plist"
+          /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $GITHUB_RUN_NUMBER" "$plist"
+          /usr/libexec/PlistBuddy -c "Set :GhosttyCommit $COMMIT" "$plist"
+          codesign --force --sign - --preserve-metadata=entitlements,flags,runtime "$app"
+          codesign --verify --deep --strict --verbose=2 "$app"
+          entitlements="$(codesign -d --entitlements - --xml "$app" 2>/dev/null)"
+          grep -q disable-library-validation <<<"$entitlements"
+          lipo -archs "$app/Contents/MacOS/ghostty"
+
+      # ditto keeps the symlinks and permissions inside the bundle's
+      # frameworks, which a plain zip or upload-artifact would lose.
+      - name: Package
+        env:
+          ARTIFACT: ${{ steps.version.outputs.artifact }}
+        run: |
+          mkdir -p dist
+          ditto -c -k --sequesterRsrc --keepParent \
+            macos/build/ReleaseLocal/Pombero.app "dist/${ARTIFACT}.zip"
+          cd dist
+          shasum -a 256 "${ARTIFACT}.zip" | tee "${ARTIFACT}.zip.sha256"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ${{ steps.version.outputs.artifact }}
+          path: dist/
+          if-no-files-found: error
+          retention-days: 30
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/pombero-v')
+    needs: build-macos
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download artifact
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: ${{ needs.build-macos.outputs.artifact }}
+          path: dist
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.build-macos.outputs.version }}
+        run: |
+          prerelease=()
+          if [[ "$VERSION" == *-* ]]; then prerelease=(--prerelease); fi
+          gh release create "$GITHUB_REF_NAME" dist/* \
+            --repo "$GITHUB_REPOSITORY" \
+            --verify-tag \
+            --title "Pombero $VERSION" \
+            "${prerelease[@]}" \
+            --generate-notes \
+            --notes "$(cat <<'EOF'
+          Apple Silicon only. This build isn't signed with an Apple Developer ID,
+          so macOS blocks it the first time it is opened. To allow it, open
+          System Settings › Privacy & Security and click Open Anyway, or run
+          `xattr -dr com.apple.quarantine /Applications/Pombero.app`.
+          EOF
+          )"
