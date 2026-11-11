@@ -260,7 +260,21 @@ class TerminalWindow: NSWindow {
         // it. This has been verified to work on macOS 12 to 26
         if isTabBar(childViewController) {
             childViewController.identifier = Self.tabBarIdentifier
+            childViewController.isHidden = hidesNativeTabBar
             tabBarDidAppear()
+        }
+    }
+
+    /// While the window shows the workspace sidebar, its tabs are drawn
+    /// inside the window next to the sidebar, so the native tab bar (which
+    /// can only span the full window width above the sidebar) is hidden.
+    /// Set by the window's workspace group.
+    var hidesNativeTabBar: Bool = false {
+        didSet {
+            guard hidesNativeTabBar != oldValue else { return }
+            for accessory in titlebarAccessoryViewControllers where isTabBar(accessory) {
+                accessory.isHidden = hidesNativeTabBar
+            }
         }
     }
 

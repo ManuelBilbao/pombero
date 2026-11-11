@@ -367,6 +367,17 @@ pub const Action = union(Key) {
     /// Set the application window theme for this session.
     set_window_theme: WindowTheme,
 
+    /// Create a new workspace in the window of the target surface and
+    /// switch to it. Workspaces are a grouping of tabs within a window.
+    new_workspace,
+
+    /// Jump to a specific workspace. Must handle the scenario that the
+    /// workspace value is invalid.
+    goto_workspace: GotoWorkspace,
+
+    /// Toggle the collapsed state of the workspace sidebar.
+    toggle_workspace_sidebar,
+
     /// Sync with: ghostty_action_tag_e
     pub const Key = enum(c_int) {
         quit,
@@ -440,6 +451,9 @@ pub const Action = union(Key) {
         move_tab_to_new_window,
         resize_window,
         set_window_theme,
+        new_workspace,
+        goto_workspace,
+        toggle_workspace_sidebar,
 
         test "ghostty.h Action.Key" {
             try lib.checkGhosttyHEnum(Key, "GHOSTTY_ACTION_");
@@ -588,6 +602,17 @@ pub const GotoTab = enum(c_int) {
     // test "ghostty.h GotoTab" {
     //     try lib.checkGhosttyHEnum(GotoTab, "GHOSTTY_GOTO_TAB_");
     // }
+};
+
+/// Sync with: ghostty_action_goto_workspace_e
+pub const GotoWorkspace = enum(c_int) {
+    previous = -1,
+    next = -2,
+    last = -3,
+    _,
+
+    // Non-exhaustive, so it can't be checked against ghostty.h the way
+    // the exhaustive enums are. See GotoTab.
 };
 
 /// The fullscreen mode to toggle to if we're moving to fullscreen.

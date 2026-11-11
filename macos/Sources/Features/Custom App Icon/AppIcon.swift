@@ -16,11 +16,24 @@ enum AppIcon: Equatable, Codable, Sendable {
     case custom(_ iconFile: Data)
     case customStyle(_ icon: ColorizedGhosttyIcon)
 
+    /// The fork's own look when the config asks for the official icon, so
+    /// it is told apart from the official app in the Dock and the app
+    /// switcher: the official icon with its blue screen turned charcoal.
+    /// Same frame, same ghost. Any explicit `macos-icon` setting still wins.
+    static let forkDefault: AppIcon = .customStyle(ColorizedGhosttyIcon(
+        screenColors: [
+            NSColor(srgbRed: 0x1E / 255, green: 0x1E / 255, blue: 0x1E / 255, alpha: 1),
+            NSColor(srgbRed: 0x30 / 255, green: 0x30 / 255, blue: 0x30 / 255, alpha: 1),
+        ],
+        ghostColor: NSColor(srgbRed: 0xB3 / 255, green: 0xD8 / 255, blue: 0xFF / 255, alpha: 1),
+        frame: .aluminum,
+        screenBlend: .screen))
+
 #if !DOCK_TILE_PLUGIN
     init?(config: Ghostty.Config) {
         switch config.macosIcon {
         case .official:
-            return nil
+            self = Self.forkDefault
         case .blueprint:
             self = .blueprint
         case .chalkboard:

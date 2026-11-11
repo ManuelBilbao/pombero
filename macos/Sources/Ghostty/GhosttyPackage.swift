@@ -346,6 +346,16 @@ extension Ghostty.Notification {
     static let ghosttyGotoTab = Notification.Name("com.mitchellh.ghostty.gotoTab")
     static let GotoTabKey = ghosttyGotoTab.rawValue
 
+    /// New workspace. Has base surface config requested in userinfo.
+    static let ghosttyNewWorkspace = Notification.Name("com.mitchellh.ghostty.newWorkspace")
+
+    /// Goto workspace. Has the workspace index in the userinfo.
+    static let ghosttyGotoWorkspace = Notification.Name("com.mitchellh.ghostty.gotoWorkspace")
+    static let GotoWorkspaceKey = ghosttyGotoWorkspace.rawValue
+
+    /// Toggle the collapsed state of the workspace sidebar.
+    static let ghosttyToggleWorkspaceSidebar = Notification.Name("com.mitchellh.ghostty.toggleWorkspaceSidebar")
+
     /// New tab. Has base surface config requested in userinfo.
     static let ghosttyNewTab = Notification.Name("com.mitchellh.ghostty.newTab")
 

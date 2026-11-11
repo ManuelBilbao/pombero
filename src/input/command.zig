@@ -726,6 +726,18 @@ fn actionCommands(action: Action.Key) []const Command {
             .description = i18n.N_("Quit the application."),
         }},
 
+        .new_workspace => comptime &.{.{
+            .action = .new_workspace,
+            .title = i18n.N_("New Workspace"),
+            .description = i18n.N_("Create a new workspace in the current window."),
+        }},
+
+        .toggle_workspace_sidebar => comptime &.{.{
+            .action = .toggle_workspace_sidebar,
+            .title = i18n.N_("Toggle Workspace Sidebar"),
+            .description = i18n.N_("Collapse or expand the workspace sidebar."),
+        }},
+
         .text => comptime &.{.{
             .action = .{ .text = "👻" },
             .title = "Ghostty",
@@ -751,6 +763,7 @@ fn actionCommands(action: Action.Key) []const Command {
         .jump_to_prompt,
         .write_scrollback_file,
         .goto_tab,
+        .goto_workspace,
         .resize_split,
         .activate_key_table,
         .activate_key_table_once,
@@ -768,6 +781,9 @@ fn actionCommands(action: Action.Key) []const Command {
         .previous_tab,
         .next_tab,
         .last_tab,
+        .previous_workspace,
+        .next_workspace,
+        .last_workspace,
         => comptime &.{},
 
         // No commands for obvious reasons

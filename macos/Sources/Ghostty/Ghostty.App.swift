@@ -771,6 +771,15 @@ extension Ghostty {
             case GHOSTTY_ACTION_COPY_TITLE_TO_CLIPBOARD:
                 return copyTitleToClipboard(app, target: target)
 
+            case GHOSTTY_ACTION_NEW_WORKSPACE:
+                newWorkspace(app, target: target)
+
+            case GHOSTTY_ACTION_GOTO_WORKSPACE:
+                return gotoWorkspace(app, target: target, workspace: action.action.goto_workspace)
+
+            case GHOSTTY_ACTION_TOGGLE_WORKSPACE_SIDEBAR:
+                return toggleWorkspaceSidebar(app, target: target)
+
             default:
                 Ghostty.logger.warning("unknown action action=\(action.tag.rawValue, privacy: .public)")
                 return false
@@ -1298,6 +1307,96 @@ extension Ghostty {
                     guard (surfaceView.window?.tabGroup?.windows.count ?? 0) > 1 else { return false }
 
                     surfaceView.window?.moveTabToNewWindow(nil)
+
+                default:
+                    assertionFailure()
+                }
+
+                return true
+        }
+
+        private static func newWorkspace(_ app: ghostty_app_t, target: ghostty_target_s) {
+            switch target.tag {
+            case GHOSTTY_TARGET_APP:
+                NotificationCenter.default.post(
+                    name: Notification.ghosttyNewWorkspace,
+                    object: nil,
+                    userInfo: [:]
+                )
+
+            case GHOSTTY_TARGET_SURFACE:
+                guard let surface = target.target.surface else { return }
+                guard let surfaceView = self.surfaceView(from: surface) else { return }
+                NotificationCenter.default.post(
+                    name: Notification.ghosttyNewWorkspace,
+                    object: surfaceView,
+                    userInfo: [
+                        Notification.NewSurfaceConfigKey: SurfaceConfiguration(from: ghostty_surface_inherited_config(surface, GHOSTTY_SURFACE_CONTEXT_TAB)),
+                    ]
+                )
+
+            default:
+                assertionFailure()
+            }
+        }
+
+        /// The workspace group of the window a surface is a tab of, if any.
+        private static func workspaceGroup(for surfaceView: SurfaceView) -> TerminalWorkspaceGroup? {
+            guard let controller = BaseTerminalController.controller(owning: surfaceView) else { return nil }
+            return controller.workspaceGroup
+        }
+
+        private static func gotoWorkspace(
+            _ app: ghostty_app_t,
+            target: ghostty_target_s,
+            workspace: ghostty_action_goto_workspace_e) -> Bool {
+                switch target.tag {
+                case GHOSTTY_TARGET_APP:
+                    Ghostty.logger.warning("goto workspace does nothing with an app target")
+                    return false
+
+                case GHOSTTY_TARGET_SURFACE:
+                    guard let surface = target.target.surface else { return false }
+                    guard let surfaceView = self.surfaceView(from: surface) else { return false }
+
+                    // Like goto_tab: with one workspace there is nowhere to go,
+                    // so report the action unperformed.
+                    guard (workspaceGroup(for: surfaceView)?.workspaces.count ?? 0) > 1 else { return false }
+
+                    NotificationCenter.default.post(
+                        name: Notification.ghosttyGotoWorkspace,
+                        object: surfaceView,
+                        userInfo: [
+                            Notification.GotoWorkspaceKey: workspace,
+                        ]
+                    )
+
+                default:
+                    assertionFailure()
+                }
+
+                return true
+        }
+
+        private static func toggleWorkspaceSidebar(
+            _ app: ghostty_app_t,
+            target: ghostty_target_s) -> Bool {
+                switch target.tag {
+                case GHOSTTY_TARGET_APP:
+                    Ghostty.logger.warning("toggle workspace sidebar does nothing with an app target")
+                    return false
+
+                case GHOSTTY_TARGET_SURFACE:
+                    guard let surface = target.target.surface else { return false }
+                    guard let surfaceView = self.surfaceView(from: surface) else { return false }
+
+                    // The sidebar only exists with more than one workspace.
+                    guard (workspaceGroup(for: surfaceView)?.workspaces.count ?? 0) > 1 else { return false }
+
+                    NotificationCenter.default.post(
+                        name: Notification.ghosttyToggleWorkspaceSidebar,
+                        object: surfaceView
+                    )
 
                 default:
                     assertionFailure()

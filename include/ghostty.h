@@ -673,6 +673,13 @@ typedef enum {
   GHOSTTY_GOTO_TAB_LAST = -3,
 } ghostty_action_goto_tab_e;
 
+// apprt.action.GotoWorkspace
+typedef enum {
+  GHOSTTY_GOTO_WORKSPACE_PREVIOUS = -1,
+  GHOSTTY_GOTO_WORKSPACE_NEXT = -2,
+  GHOSTTY_GOTO_WORKSPACE_LAST = -3,
+} ghostty_action_goto_workspace_e;
+
 // apprt.action.Fullscreen
 typedef enum {
   GHOSTTY_FULLSCREEN_NATIVE,
@@ -1041,6 +1048,9 @@ typedef enum {
   GHOSTTY_ACTION_MOVE_TAB_TO_NEW_WINDOW,
   GHOSTTY_ACTION_RESIZE_WINDOW,
   GHOSTTY_ACTION_SET_WINDOW_THEME,
+  GHOSTTY_ACTION_NEW_WORKSPACE,
+  GHOSTTY_ACTION_GOTO_WORKSPACE,
+  GHOSTTY_ACTION_TOGGLE_WORKSPACE_SIDEBAR,
 } ghostty_action_tag_e;
 
 typedef union {
@@ -1048,6 +1058,7 @@ typedef union {
   ghostty_action_fullscreen_e toggle_fullscreen;
   ghostty_action_move_tab_s move_tab;
   ghostty_action_goto_tab_e goto_tab;
+  ghostty_action_goto_workspace_e goto_workspace;
   ghostty_action_goto_split_e goto_split;
   ghostty_action_goto_window_e goto_window;
   ghostty_action_resize_split_s resize_split;

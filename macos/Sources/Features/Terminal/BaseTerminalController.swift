@@ -59,6 +59,10 @@ class BaseTerminalController: NSWindowController,
     /// Set if the terminal view should show the update overlay.
     @Published var updateOverlayIsVisible: Bool = false
 
+    /// The workspaces of the window this controller is a tab of. Nil for
+    /// controllers that don't take part in workspaces (the quick terminal).
+    @Published var workspaceGroup: TerminalWorkspaceGroup?
+
     /// True when any surface in this controller currently has an active bell.
     @Published private(set) var bell: Bool = false
 
@@ -944,6 +948,22 @@ class BaseTerminalController: NSWindowController,
         // set content resize increments to this value, so avoid an assertion failure.
         guard to.width > 0 && to.height > 0 else { return }
         self.window?.contentResizeIncrements = to
+    }
+
+    func requestNewWorkspace() {
+        // Workspaces are a TerminalController feature.
+    }
+
+    func requestCloseWorkspace(_ workspace: TerminalWorkspace) {
+        // Workspaces are a TerminalController feature.
+    }
+
+    func requestNewTab() {
+        // Workspaces are a TerminalController feature.
+    }
+
+    func requestCloseTab(_ controller: TerminalController) {
+        // Workspaces are a TerminalController feature.
     }
 
     func performSplitAction(_ action: TerminalSplitOperation) {
