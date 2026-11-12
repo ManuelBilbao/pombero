@@ -2,7 +2,8 @@ const std = @import("std");
 const assert = std.debug.assert;
 const builtin = @import("builtin");
 const buildpkg = @import("src/build/main.zig");
-const translate_c = @import("translate_c");
+
+const c_deps = @import("src/build/c_deps.zig");
 
 /// App version from build.zig.zon.
 const app_zon_version = @import("build.zig.zon").version;
@@ -12,7 +13,7 @@ const app_zon_version = @import("build.zig.zon").version;
 ///
 /// CMakeLists.txt and CI read this line with a regular expression, so
 /// keep it on one line in this form.
-const lib_version = "0.1.0-dev";
+const lib_version = "1.0.2-dev";
 
 /// Minimum required zig version.
 const minimum_zig_version = @import("build.zig.zon").minimum_zig_version;
@@ -39,6 +40,31 @@ pub fn build(b: *std.Build) !void {
         "test-filter",
         "Filter for test. Only applies to Zig tests.",
     ) orelse &[0][]const u8{};
+
+    // How many processes run each large test binary at once. Zig's test
+    // runner runs tests one after another on a single thread, and the
+    // Debug suite takes many minutes that way. With N shards the build
+    // starts N copies of the binary and each copy runs every N-th test
+    // (see src/build/test_runner.zig), so the suite finishes in about
+    // 1/N of the time on a machine with N free cores.
+    //
+    // The default is the CPU count, up to 64. Use 1 to run every test in
+    // a single process, in order, like Zig's default test runner:
+    //
+    //     zig build test -Dtest-shards=1
+    const test_shards: u32 = b.option(
+        u32,
+        "test-shards",
+        "Processes to split each test binary across (default: CPU count, at most 64)",
+    ) orelse @intCast(@min(std.Thread.getCpuCount() catch 1, 64));
+    if (test_shards == 0) {
+        std.debug.print("-Dtest-shards must be at least 1\n", .{});
+        std.process.exit(1);
+    }
+    const test_runner: std.Build.Step.Compile.TestRunner = .{
+        .path = b.path("src/build/test_runner.zig"),
+        .mode = .server,
+    };
 
     // Ghostty dependencies used by many artifacts.
     const deps = try buildpkg.SharedDeps.init(b, &config);
@@ -91,8 +117,10 @@ pub fn build(b: *std.Build) !void {
     // Ghostty resources like terminfo, shell integration, themes, etc.
     // Only the app uses them, so a libghostty-vt build skips them, which
     // also keeps it from downloading the themes package. This is null only
-    // when emit_lib_vt is set, and every use below is in an app-only branch.
-    const resources: ?buildpkg.GhosttyResources = if (config.emit_lib_vt)
+    // when emit_lib_vt is set without emit_exe, and every use below is in
+    // an app-only branch.
+    const resources: ?buildpkg.GhosttyResources = if (config.emit_lib_vt and
+        !config.emit_exe)
         null
     else
         try buildpkg.GhosttyResources.init(b, &config, &deps);
@@ -393,30 +421,41 @@ pub fn build(b: *std.Build) !void {
             .name = "ghostty-vt-test",
             .root_module = mod.vt,
             .filters = test_filters,
+            .test_runner = test_runner,
         });
-        const mod_vt_test_run = b.addRunArtifact(mod_vt_test);
-        test_lib_vt_step.dependOn(&mod_vt_test_run.step);
+        try c_deps.add(b, .@"ghostty-vt-h", mod_vt_test.root_module, &config, .{});
+        addShardedTestRuns(b, &config, mod_vt_test, test_lib_vt_step, test_shards);
 
         const mod_vt_c_test = b.addTest(.{
             .name = "ghostty-vt-c-test",
             .root_module = try buildpkg.GhosttyZig.initVtCTest(b, &config, &deps),
             .filters = test_filters,
+            .test_runner = test_runner,
         });
-        const mod_vt_c_test_run = b.addRunArtifact(mod_vt_c_test);
-        test_lib_vt_step.dependOn(&mod_vt_c_test_run.step);
+        addShardedTestRuns(b, &config, mod_vt_c_test, test_lib_vt_step, test_shards);
 
-        // The committed version.h must match lib_version, so a version
-        // bump has to update both. The test embeds the header, so both
-        // files are copied into one directory.
-        const version_h_test = version_h_test: {
+        // The committed version.h, the symbol version nodes in
+        // ghostty-vt.map and the version in the nix package must all match
+        // lib_version, so a version bump has to update them together. The
+        // test embeds these files, so they are all copied into one
+        // directory.
+        const version_test = version_test: {
             const wf = b.addWriteFiles();
             const root = wf.addCopyFile(
-                b.path("src/terminal/c/version_h_test.zig"),
-                "version_h_test.zig",
+                b.path("src/terminal/c/version_test.zig"),
+                "version_test.zig",
             );
             _ = wf.addCopyFile(
                 b.path("include/ghostty/vt/version.h"),
                 "version.h",
+            );
+            _ = wf.addCopyFile(
+                b.path("src/terminal/c/ghostty-vt.map"),
+                "ghostty-vt.map",
+            );
+            _ = wf.addCopyFile(
+                b.path("nix/libghostty-vt.nix"),
+                "libghostty-vt.nix",
             );
             const opts = b.addOptions();
             opts.addOption(std.SemanticVersion, "lib_version", config.lib_version);
@@ -426,13 +465,13 @@ pub fn build(b: *std.Build) !void {
                 .optimize = .debug,
             });
             test_mod.addOptions("lib_version", opts);
-            break :version_h_test b.addTest(.{
-                .name = "ghostty-vt-version-h-test",
+            break :version_test b.addTest(.{
+                .name = "ghostty-vt-version-test",
                 .root_module = test_mod,
                 .filters = test_filters,
             });
         };
-        test_lib_vt_step.dependOn(&b.addRunArtifact(version_h_test).step);
+        test_lib_vt_step.dependOn(&b.addRunArtifact(version_test).step);
 
         // The public headers must compile without warnings in every
         // language standard we support, so compile a file that includes
@@ -490,50 +529,96 @@ pub fn build(b: *std.Build) !void {
 
     // Tests (skip when building libghostty-vt)
     if (!config.emit_lib_vt) {
-        // Full unit tests
-        const test_exe = b.addTest(.{
-            .name = "ghostty-test",
-            .filters = test_filters,
-            .root_module = b.createModule(.{
-                .root_source_file = b.path("src/main.zig"),
+        // Full unit tests, built twice.
+        //
+        // ghostty-test is the normal test binary. It is built with Zig's
+        // self-hosted backend, which compiles it minutes faster than LLVM.
+        // In the Nix dev shell, its run steps start it through the
+        // shell's dynamic linker rather than patching it (see
+        // Config.addLoaderArgs).
+        //
+        // ghostty-test-valgrind holds the same tests built with LLVM, for
+        // `zig build test-valgrind`. Valgrind can't start a program
+        // through the dynamic linker, so this binary is patched with
+        // patchelf instead, and patchelf only accepts LLVM's ELF output.
+        var test_exes: [2]*std.Build.Step.Compile = undefined;
+        for (&test_exes, [_]bool{ false, true }) |*test_exe_ptr, valgrind| {
+            test_exe_ptr.* = b.addTest(.{
+                .name = if (valgrind) "ghostty-test-valgrind" else "ghostty-test",
+                .filters = test_filters,
+                .root_module = b.createModule(.{
+                    .root_source_file = b.path("src/main.zig"),
+                    .target = config.baselineTarget(b.graph.io),
+                    .optimize = .debug,
+                    .strip = false,
+                    .omit_frame_pointer = false,
+                    .unwind_tables = .sync,
+                }),
+                .use_llvm = if (valgrind) true else null,
+                .test_runner = test_runner,
+            });
+            _ = try deps.add(test_exe_ptr.*);
+            try c_deps.add(b, .@"ghostty-h", test_exe_ptr.*.root_module, &config, .{
                 .target = config.baselineTarget(b.graph.io),
-                .optimize = .debug,
-                .strip = false,
-                .omit_frame_pointer = false,
-                .unwind_tables = .sync,
-            }),
-            // Crash on x86_64 without this
-            .use_llvm = true,
-        });
+                .optimize = .Debug,
+            });
+            try c_deps.add(b, .@"ghostty-vt-h", test_exe_ptr.*.root_module, &config, .{
+                .target = config.baselineTarget(b.graph.io),
+                .optimize = .Debug,
+            });
+        }
+        const test_exe, const valgrind_exe = test_exes;
+
+        // The installed binary is not patched for the Nix dev shell,
+        // because patchelf can't rewrite the self-hosted backend's output.
+        // To run it there, start it through the shell's dynamic linker
+        // the same way the test run steps do (see Config.addLoaderArgs).
         if (config.emit_test_exe) {
             const test_exe_install = b.addInstallArtifact(test_exe, .{});
-            config.addPatchElf(test_exe, &test_exe_install.step);
             test_step.dependOn(&test_exe_install.step);
         }
-        _ = try deps.add(test_exe);
-
-        addGhosttyH(b, test_exe.root_module, config.baselineTarget(b.graph.io), .debug);
 
         // Normal test running
-        const test_run = b.addRunArtifact(test_exe);
-        config.addPatchElf(test_exe, &test_run.step);
-        test_step.dependOn(&test_run.step);
+        addShardedTestRuns(b, &config, test_exe, test_step, test_shards);
 
         // Normal tests always test our libghostty modules
         //test_step.dependOn(test_lib_vt_step);
 
-        // Valgrind test running
-        const valgrind_run = b.addSystemCommand(&.{
-            "valgrind",
-            "--leak-check=full",
-            "--error-exitcode=1",
-            "--num-callers=50",
-            "--gen-suppressions=all",
-        });
-        valgrind_run.addFileArg2(b.path("valgrind.supp"), .{ .prefix = "--suppressions=" });
-        valgrind_run.addArtifactArg(test_exe);
-        config.addPatchElf(test_exe, &valgrind_run.step);
-        test_valgrind_step.dependOn(&valgrind_run.step);
+        // Valgrind test running. These are test runner steps like the
+        // normal runs above, with valgrind in front of the binary instead
+        // of the dynamic linker. A plain command step whose stdio goes to
+        // the terminal holds a global lock while it runs, so the build
+        // runner would run the shards one after another and sharding
+        // would gain nothing. As test runner steps the shards run at the
+        // same time, a failing test is reported by name, and valgrind's
+        // report on stderr is printed when each shard finishes rather
+        // than live. Valgrind's own errors exit with code 1 and fail the
+        // shard.
+        //
+        // patchelf rewrites the binary in place, so it runs once, before
+        // any shard starts. One patchelf step per shard would rewrite the
+        // file under the shards already running, and they die with
+        // SIGBUS: valgrind maps the file itself, so nothing stops the
+        // write.
+        const valgrind_patchelf = config.addPatchElf(valgrind_exe, test_valgrind_step);
+        for (0..test_shards) |shard| {
+            const valgrind_run = b.addSystemCommand(&.{
+                "valgrind",
+                "--leak-check=full",
+                "--error-exitcode=1",
+                "--num-callers=50",
+                "--gen-suppressions=all",
+            });
+            valgrind_run.producer = valgrind_exe;
+            valgrind_run.addFileArg2(b.path("valgrind.supp"), .{ .prefix = "--suppressions=" });
+            valgrind_run.addArtifactArg(valgrind_exe);
+            valgrind_run.enableTestRunnerMode();
+            if (test_shards > 1) {
+                valgrind_run.addArg(b.fmt("--shard={d}/{d}", .{ shard, test_shards }));
+            }
+            if (valgrind_patchelf) |patchelf| valgrind_run.step.dependOn(&patchelf.step);
+            test_valgrind_step.dependOn(&valgrind_run.step);
+        }
     }
 
     // update-translations does what it sounds like and updates the "pot"
@@ -545,20 +630,42 @@ pub fn build(b: *std.Build) !void {
     }
 }
 
-fn addGhosttyH(
+/// Makes `step` run the tests in `test_exe` as `shards` processes at
+/// once. Each process gets a `--shard=I/N` argument and runs only its
+/// share of the tests (see src/build/test_runner.zig). Nothing orders the
+/// run steps, so the build runner starts them in parallel, and it reports
+/// each failing test by name as usual.
+///
+/// For example, with `shards` set to 4 the build runs:
+///
+///     ghostty-test --shard=0/4
+///     ghostty-test --shard=1/4
+///     ghostty-test --shard=2/4
+///     ghostty-test --shard=3/4
+///
+/// With `shards` set to 1 there is no `--shard` argument, so the single
+/// process behaves exactly like Zig's default test runner. In the Nix dev
+/// shell each command starts with the shell's dynamic linker (see
+/// Config.addLoaderArgs).
+fn addShardedTestRuns(
     b: *std.Build,
-    module: *std.Build.Module,
-    target: std.Build.ResolvedTarget,
-    optimize: std.lang.Optimize,
+    config: *const buildpkg.Config,
+    test_exe: *std.Build.Step.Compile,
+    step: *std.Build.Step,
+    shards: u32,
 ) void {
-    translate_c.addImportToModule(b, "ghostty.h", module, .{
-        .source = .{ .includes = .{ .files = &.{
-            .{ .path = "ghostty.h" },
-        } } },
-        .target = target,
-        .optimize = optimize,
-        .system_include_paths = &.{b.path("include")},
-    }) catch unreachable;
+    for (0..shards) |shard| {
+        // Like b.addRunArtifact, with the loader in front of the binary.
+        const run = std.Build.Step.Run.create(b, b.fmt("run test {s}", .{test_exe.name}));
+        run.producer = test_exe;
+        config.addLoaderArgs(run);
+        run.addArtifactArg(test_exe);
+        run.enableTestRunnerMode();
+        if (shards > 1) {
+            run.addArg(b.fmt("--shard={d}/{d}", .{ shard, shards }));
+        }
+        step.dependOn(&run.step);
+    }
 }
 
 /// Returns the trimmed contents of `name` in the build root, or null if
