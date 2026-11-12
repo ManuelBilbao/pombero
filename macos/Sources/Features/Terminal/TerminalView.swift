@@ -104,6 +104,7 @@ struct TerminalView<ViewModel: TerminalViewModel>: View {
                         if let group = viewModel.workspaceGroup {
                             WorkspaceTabStripView(
                                 group: group,
+                                hostID: ObjectIdentifier(viewModel),
                                 backgroundColor: ghostty.config.backgroundColor,
                                 onNewTab: { delegate?.requestNewTab() },
                                 onSelectTab: { controller in
