@@ -124,6 +124,15 @@ final class TerminalWorkspaceGroup: ObservableObject {
     /// The selected tab of the visible workspace, for the in-window tab strip.
     @Published private(set) var selectedTabID: ObjectIdentifier?
 
+    /// The tab being renamed in the tab strip. Every tab window draws its
+    /// own strip, so only the strip in the window that started the rename
+    /// (`host`) shows the editor.
+    struct TabRename: Equatable {
+        let tab: ObjectIdentifier
+        let host: ObjectIdentifier
+    }
+
+    @Published private(set) var tabRename: TabRename?
 
     /// The frame of the last visible window of this group. Used to place the
     /// windows of a workspace that is revealed when no window is on screen.
@@ -161,6 +170,20 @@ final class TerminalWorkspaceGroup: ObservableObject {
 
     /// The sidebar is only shown when there is something to choose from.
     var showsSidebar: Bool { workspaces.count > 1 }
+
+    /// The tabs the in-window strip lists. A closed tab's controller
+    /// outlives its window for a while; it is never listed, its window must
+    /// not be driven or observed.
+    var stripTabs: [(controller: TerminalController, window: NSWindow)] {
+        visibleTabs.compactMap { weak in
+            guard let controller = weak.value, !controller.windowIsClosing,
+                  let window = controller.window, window.isVisible else { return nil }
+            return (controller, window)
+        }
+    }
+
+    /// Like the native tab bar, the strip is hidden for a lone tab.
+    var showsTabStrip: Bool { showsSidebar && stripTabs.count > 1 }
 
     /// Every controller in every workspace.
     var allControllers: [TerminalController] {
@@ -381,6 +404,35 @@ final class TerminalWorkspaceGroup: ObservableObject {
         let windows = window.tabGroup?.windows ?? [window]
         for case let terminalWindow as TerminalWindow in windows {
             terminalWindow.hidesNativeTabBar = showsSidebar
+        }
+    }
+
+    // MARK: Renaming tabs
+
+    /// Start renaming `tab` in the strip of the window whose controller is
+    /// `host`. Returns false when the strip isn't shown, so the caller can
+    /// fall back to the title prompt.
+    @discardableResult
+    func beginRenaming(_ tab: TerminalController, in host: ObjectIdentifier) -> Bool {
+        guard showsTabStrip else { return false }
+        let shown = stripTabs.map { ObjectIdentifier($0.controller) }
+        guard shown.contains(ObjectIdentifier(tab)), shown.contains(host) else { return false }
+        tabRename = TabRename(tab: ObjectIdentifier(tab), host: host)
+        return true
+    }
+
+    /// End the rename of `tab`. A nil title cancels it and an empty one
+    /// goes back to the title the terminal sets. Enter, Escape, the field
+    /// losing focus and the field going away can all end the same rename,
+    /// so only the first call does anything.
+    func finishRenaming(_ tab: TerminalController, title: String?, refocus: Bool) {
+        guard tabRename?.tab == ObjectIdentifier(tab) else { return }
+        tabRename = nil
+        if let title {
+            tab.titleOverride = title.isEmpty ? nil : title
+        }
+        if refocus {
+            Self.refocusTerminal()
         }
     }
 

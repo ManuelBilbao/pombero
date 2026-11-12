@@ -1543,6 +1543,16 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         performAction("toggle_workspace_sidebar", on: surface)
     }
 
+    /// With more than one workspace the tabs are in the in-window strip, so
+    /// the title is edited there. When the strip isn't shown (a lone tab),
+    /// the base class falls back to the title prompt.
+    @IBAction override func changeTabTitle(_ sender: Any) {
+        if let group = workspaceGroup, group.beginRenaming(self, in: ObjectIdentifier(self)) {
+            return
+        }
+        super.changeTabTitle(sender)
+    }
+
     override func requestNewWorkspace() {
         newWorkspace(nil)
     }

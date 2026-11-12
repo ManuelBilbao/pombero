@@ -229,7 +229,10 @@ class TerminalWindow: NSWindow {
 
     @discardableResult
     func beginInlineTabTitleEdit(for targetWindow: NSWindow) -> Bool {
-        tabTitleEditor.beginEditing(for: targetWindow)
+        // The hidden native tab bar would host an editor nobody can see, so
+        // callers fall back to the title prompt.
+        guard !hidesNativeTabBar else { return false }
+        return tabTitleEditor.beginEditing(for: targetWindow)
     }
 
     @objc private func renameTabFromContextMenu(_ sender: NSMenuItem) {
