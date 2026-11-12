@@ -154,12 +154,27 @@ jobs:
         run: |
           prerelease=()
           if [[ "$VERSION" == *-* ]]; then prerelease=(--prerelease); fi
+
+          # Generated notes start at the last final release, so a release
+          # (or its rcs) lists everything since then, not just what changed
+          # since the rc before it. GitHub's default is the latest release
+          # of any kind, and is kept when there is no final release yet.
+          notes_start=()
+          previous="$(gh release list --repo "$GITHUB_REPOSITORY" \
+            --exclude-pre-releases --exclude-drafts --limit 1 \
+            --json tagName --jq '.[0].tagName // empty')"
+          if [[ -n "$previous" ]]; then
+            echo "Release notes start at $previous"
+            notes_start=(--notes-start-tag "$previous")
+          fi
+
           gh release create "$GITHUB_REF_NAME" pombero-dist/* \
             --repo "$GITHUB_REPOSITORY" \
             --verify-tag \
             --title "Pombero $VERSION" \
             "${prerelease[@]}" \
             --generate-notes \
+            "${notes_start[@]}" \
             --notes "$(cat <<'EOF'
           Apple Silicon only. This build isn't signed with an Apple Developer ID,
           so macOS blocks it the first time it is opened. To allow it, open
