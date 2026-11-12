@@ -1,3 +1,11 @@
+> [!WARNING]
+> **Disclaimer:** Pombero is an AI-built fork of
+> [Ghostty](https://github.com/ghostty-org/ghostty) with custom-tailored
+> features, such as workspaces on macOS. It is not affiliated with or
+> endorsed by the Ghostty project, and its changes are not reviewed by
+> Ghostty's maintainers. Please don't report Pombero issues to Ghostty.
+> Everything below is Ghostty's own README.
+
 <!-- LOGO -->
 <h1>
 <p align="center">
