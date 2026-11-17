@@ -397,6 +397,48 @@ final class TerminalWorkspaceGroup: ObservableObject {
         syncNativeTabBar(anchor)
     }
 
+    /// Move a tab of the visible workspace to the position of another one,
+    /// for a drag in the tab strip. The selected tab never leaves the tab
+    /// group: removing it makes AppKit show (and make key) a neighbor for a
+    /// moment, so the tabs it passes over hop to its other side instead.
+    func moveTab(_ tab: TerminalController, to target: TerminalController) {
+        guard let window = tab.window, let targetWindow = target.window,
+              let tabGroup = window.tabGroup, targetWindow.tabGroup === tabGroup else { return }
+        let windows = tabGroup.windows
+        guard let from = windows.firstIndex(of: window),
+              let to = windows.firstIndex(of: targetWindow),
+              from != to else { return }
+        let selectedWindow = tabGroup.selectedWindow
+
+        NSAnimationContext.beginGrouping()
+        NSAnimationContext.current.duration = 0
+        if window === selectedWindow {
+            if to < from {
+                for passed in windows[to..<from].reversed() {
+                    tabGroup.removeWindow(passed)
+                    window.addTabbedWindowSafely(passed, ordered: .above)
+                }
+            } else {
+                for passed in windows[(from + 1)...to] {
+                    tabGroup.removeWindow(passed)
+                    window.addTabbedWindowSafely(passed, ordered: .below)
+                }
+            }
+        } else {
+            tabGroup.removeWindow(window)
+            targetWindow.addTabbedWindowSafely(window, ordered: to < from ? .below : .above)
+        }
+        if let selectedWindow, tabGroup.selectedWindow !== selectedWindow {
+            tabGroup.selectedWindow = selectedWindow
+        }
+        NSAnimationContext.endGrouping()
+
+        // The tab shortcuts follow the new positions, and the strip follows
+        // the tab group. With the native tab bar hidden nothing else
+        // notices the move.
+        tab.relabelTabs()
+    }
+
     /// The native tab bar can only span the whole window, above the sidebar,
     /// so it is hidden while the sidebar is shown and the strip draws the
     /// tabs instead. It comes back when the window is down to one workspace.
